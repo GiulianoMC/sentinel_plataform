@@ -1,4 +1,4 @@
-Plataforma Sentinela
+Plataforma Sentinela<br>
 Este é o repositório do projeto "Plataforma Sentinela", um Trabalho de Conclusão de Curso (TCC) do curso de Engenharia da Computação.
 
 O projeto consiste na construção de uma plataforma de engenharia de dados para analisar, em larga escala, o conteúdo textual gerado por utilizadores (como comentários do YouTube) utilizando técnicas de busca semântica com Inteligência Artificial.
@@ -23,7 +23,7 @@ Certifique-se de que tem o Git, Docker e Docker Compose instalados na sua máqui
 
 Clonar o repositório:
 
-git clone [[URL_DO_SEU_REPOSITÓRIO]](https://github.com/GiulianoMC/sentinel_plataform.git)
+git clone https://github.com/GiulianoMC/sentinel_plataform.git
 
 Navegar para a pasta do projeto:
 
@@ -40,3 +40,4 @@ A API estará disponível em: http://localhost:8000
 A documentação interativa da API estará disponível em: http://localhost:8000/docs
 
 Este projeto está em desenvolvimento.
+
