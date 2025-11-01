@@ -14,11 +14,15 @@ def processar_novo_comentario(self, comment_id: str, comment_text: str):
     
     try:
         service = SemanticSearchService()
-        
+
+        collection = service.chroma_client.get_or_create_collection(
+            name=COLLECTION_NAME,
+            embedding_function=service.embedding_function 
+        )
+        print(f"[WORKER] Coleção '{COLLECTION_NAME}' assegurada.")
+
         print(f"[WORKER] A gerar embedding para {comment_id}...")
         embedding = service.model.encode([comment_text])
-        
-        collection = service.chroma_client.get_collection(name=COLLECTION_NAME)
         
         collection.add(
             embeddings=embedding.tolist(),

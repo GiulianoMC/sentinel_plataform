@@ -3,7 +3,6 @@ from chromadb.utils import embedding_functions
 from sentence_transformers import SentenceTransformer
 import logging
 
-# Configuração de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,7 @@ class SemanticSearchService:
         
         self.collection = self.chroma_client.get_or_create_collection(
             name=collection_name,
-            embedding_function=self.embedding_function 
+            embedding_function=self.embedding_function
         )
         
         if self.collection.count() == 0 and documents:
@@ -41,6 +40,7 @@ class SemanticSearchService:
     def search(self, query: str, num_results: int = 2) -> list[str]:
 
         if not self.collection:
+
             try:
                 self.collection = self.chroma_client.get_collection(name="comentarios_produtos")
             except Exception as e:

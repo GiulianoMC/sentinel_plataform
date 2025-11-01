@@ -1,30 +1,21 @@
 version: '3.9'
 
 services:
-  # O serviço da fila de mensagens (Message Broker)
   rabbitmq:
     image: rabbitmq:3.12-management-alpine
     container_name: 'rabbitmq'
     ports:
       - "5672:5672"
       - "15672:15672"
-    # Healthcheck removido
 
-  # O serviço do nosso Banco de Dados Vetorial
   chromadb:
-    # --- INÍCIO DA CORREÇÃO ---
-    # Forçamos o docker a usar a versão 0.4.15 do Chroma,
-    # que é compatível com a biblioteca python 0.4.15 que estamos a usar.
     image: chromadb/chroma:0.4.15
-    # --- FIM DA CORREÇÃO ---
     container_name: 'chromadb'
     ports:
       - "8000:8000"
     volumes:
-      - ./chroma_data:/chroma/.chroma/index # <--- ATENÇÃO AQUI (ver nota abaixo)
-    # Healthcheck removido
+      - ./chroma_data:/chroma/.chroma/index 
 
-  # O serviço da nossa API Web
   api:
     build: .
     container_name: 'sentinela_api'
@@ -34,13 +25,11 @@ services:
       - ./app:/code/app
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     depends_on:
-      # Condições removidas. Apenas depende que o contentor "exista".
       - rabbitmq
       - chromadb
     environment:
       - PYTHONPATH=/code
 
-  # O serviço do nosso Worker (Consumidor)
   worker:
     build: .
     container_name: 'sentinela_worker'
@@ -48,7 +37,18 @@ services:
     volumes:
       - ./app:/code/app
     depends_on:
-      # Condições removidas.
+      - rabbitmq
+      - chromadb
+    environment:
+      - PYTHONPATH=/code
+      
+  beat:
+    build: .
+    container_name: 'sentinela_beat'
+    command: ["celery", "-A", "app.celery.celery_app:celery", "beat", "--loglevel=info"]
+    volumes:
+      - ./app:/code/app
+    depends_on:
       - rabbitmq
       - chromadb
     environment:
