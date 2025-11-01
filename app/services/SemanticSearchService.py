@@ -4,7 +4,7 @@ from sentence_transformers import SentenceTransformer
 class SemanticSearchService:
     def __init__(self, model_name='paraphrase-multilingual-mpnet-base-v2'):
         
-        print("--- A carregar o modelo de IA... Isto pode demorar alguns minutos. ---")
+        print("--- A carregar o modelo de IA Hugging Face... Isto pode demorar alguns minutos. ---")
         self.model = SentenceTransformer(model_name)
         print("--- Modelo carregado com sucesso! ---")
         
