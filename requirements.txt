@@ -3,4 +3,5 @@ sentence-transformers
 chromadb==0.4.15
 posthog==3.0.1
 pysqlite3-binary
-
+celery
+kombu
