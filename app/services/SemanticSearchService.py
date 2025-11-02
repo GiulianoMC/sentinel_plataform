@@ -6,7 +6,7 @@ import time
 import urllib.request
 import urllib.error
 import os
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -74,10 +74,13 @@ class SemanticSearchService:
     def get_collection(self, collection_name: str):
         """Retorna a coleção, criando se necessário e usando cache por worker."""
         if collection_name not in self.collection_cache:
+            
             collection = self.chroma_client.get_or_create_collection(
                 name=collection_name,
-                embedding_function=self.embedding_function
+                embedding_function=self.embedding_function,
+                metadata={"hnsw:space": "cosine"} 
             )
+            
             self.collection_cache[collection_name] = collection
         return self.collection_cache[collection_name]
 
@@ -94,24 +97,45 @@ class SemanticSearchService:
         else:
             logger.info(f"--- Coleção '{collection_name}' já contém {collection.count()} documentos. ---")
 
-    def search(self, query: str, video_id_filter: Optional[str] = None, num_results: int = 2) -> list[str]:
+    def search(self, 
+               query: str, 
+               video_id_filter: Optional[str] = None, 
+               num_results: int = 10,
+               threshold: float = 0.6
+               ) -> List[Dict[str, Any]]:
         """
-        Busca semanticamente na coleção, com filtro opcional de video_id.
+        Busca semanticamente na coleção, com filtro opcional e threshold de relevância.
         """
         collection_name = "comentarios_produtos"
         collection = self.get_collection(collection_name)
         
         query_params = {
             "query_texts": [query],
-            "n_results": num_results
+            "n_results": num_results,
+            "include": ["documents", "distances", "metadatas"]
         }
         
         if video_id_filter:
             query_params["where"] = {"video_id": video_id_filter}
-            logger.info(f"--- Buscando: '{query}' (FILTRADO para video_id: {video_id_filter}) ---")
+            logger.info(f"--- Buscando: '{query}' (FILTRADO para youtube_id: {video_id_filter}) ---")
         else:
-            logger.info(f"--- Buscando: '{query}' (em TODOS os vídeos) ---")
+            logger.info(f"--- Buscando: '{query}' (em TODOS os vídeos, Top {num_results} candidatos) ---")
 
         results = collection.query(**query_params)
-                
-        return results['documents'][0] if results and 'documents' in results and results['documents'] else []
+        
+        final_results = []
+        if not results['documents']:
+            return []
+
+        for doc, dist, meta in zip(results['documents'][0], results['distances'][0], results['metadatas'][0]):
+            
+            if dist <= threshold: 
+                final_results.append({
+                    "documento": doc,
+                    "distancia": dist,
+                    "metadados": meta
+                })
+        
+        logger.info(f"--- Encontrados {len(final_results)} resultados relevantes (limite: {threshold}) ---")
+        
+        return final_results
