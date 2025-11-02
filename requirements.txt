@@ -5,3 +5,8 @@ posthog==3.0.1
 pysqlite3-binary
 celery
 kombu
+sqlalchemy
+psycopg2-binary
+alembic
+google-api-python-client
+python-dateutil

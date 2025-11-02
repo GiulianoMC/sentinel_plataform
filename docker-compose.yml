@@ -1,35 +1,71 @@
 version: '3.9'
 
 services:
+  # O serviço da fila de mensagens (Message Broker)
   rabbitmq:
     image: rabbitmq:3.12-management-alpine
     container_name: 'rabbitmq'
     ports:
       - "5672:5672"
       - "15672:15672"
+    networks:
+      - sentinela_network
 
+  # O serviço do nosso Banco de Dados Vetorial
   chromadb:
-    image: chromadb/chroma:0.4.15
+    image: chromadb/chroma:0.5.3
     container_name: 'chromadb'
     ports:
       - "8000:8000"
     volumes:
-      - ./chroma_data:/chroma/.chroma/index 
+      - ./chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    # Mantive o ajuste do numpy caso seja necessário forçar a versão < 2.0
+    command: /bin/sh -c "pip install --no-cache-dir --force-reinstall 'numpy<2.0' && uvicorn chromadb.app:app --host 0.0.0.0 --port 8000"
+    networks:
+      - sentinela_network
 
+  # O serviço do nosso Banco de Dados Relacional (PostgreSQL)
+  postgres:
+    image: postgres:15-alpine
+    container_name: 'postgres_db'
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=sentinela
+    networks:
+      - sentinela_network
+
+  # O serviço da nossa API Web
   api:
     build: .
     container_name: 'sentinela_api'
     ports:
-      - "8001:8000" 
+      - "8001:8000"
     volumes:
       - ./app:/code/app
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     depends_on:
       - rabbitmq
       - chromadb
+      - postgres
     environment:
       - PYTHONPATH=/code
+      - DATABASE_URL=postgresql://admin:admin@postgres:5432/sentinela
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+    restart: on-failure
+    networks:
+      - sentinela_network
 
+  # O serviço do nosso Worker (Consumidor)
   worker:
     build: .
     container_name: 'sentinela_worker'
@@ -39,9 +75,18 @@ services:
     depends_on:
       - rabbitmq
       - chromadb
+      - postgres
     environment:
       - PYTHONPATH=/code
-      
+      - DATABASE_URL=postgresql://admin:admin@postgres:5432/sentinela
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+    restart: on-failure
+    networks:
+      - sentinela_network
+
+  # O serviço do nosso Agendador
   beat:
     build: .
     container_name: 'sentinela_beat'
@@ -51,5 +96,17 @@ services:
     depends_on:
       - rabbitmq
       - chromadb
+      - postgres
     environment:
       - PYTHONPATH=/code
+      - DATABASE_URL=postgresql://admin:admin@postgres:5432/sentinela
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+    restart: on-failure
+    networks:
+      - sentinela_network
+
+networks:
+  sentinela_network:
+    driver: bridge

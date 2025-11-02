@@ -1,9 +1,24 @@
 from app.services.SemanticSearchService import SemanticSearchService
+from typing import Optional, List, Dict, Any
 
-def execute_search_use_case(query: str, search_service: SemanticSearchService) -> list[str]:
-    if not query or not isinstance(query, str):
-        raise ValueError("A pergunta não pode ser vazia e deve ser uma string.")
-
-    results = search_service.search(query=query, num_results=2)
+def execute_search_use_case(
+    query: str, 
+    search_service: SemanticSearchService, 
+    video_id_filter: Optional[str] = None,
+    num_results: int = 10,
+    threshold: float = 0.6
+) -> List[Dict[str, Any]]:
+    """
+    Executa a lógica de busca semântica, agora com filtro opcional e threshold.
+    """
+    if not query:
+        raise ValueError("A query não pode estar vazia.")
     
-    return results
+    resultados = search_service.search(
+        query=query, 
+        video_id_filter=video_id_filter,
+        num_results=num_results,
+        threshold=threshold
+    )
+    
+    return resultados
