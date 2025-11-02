@@ -60,6 +60,7 @@ services:
       - DATABASE_URL=postgresql://admin:admin@postgres:5432/sentinela
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
+      - YOUTUBE_API_KEY=AIzaSyCWAE56Sxl7m_0GPOhImS20Fo8HuUjmmDk
     restart: on-failure
     networks:
       - sentinela_network
@@ -80,6 +81,7 @@ services:
       - DATABASE_URL=postgresql://admin:admin@postgres:5432/sentinela
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
+      - YOUTUBE_API_KEY=AIzaSyCWAE56Sxl7m_0GPOhImS20Fo8HuUjmmDk
     restart: on-failure
     networks:
       - sentinela_network
@@ -100,6 +102,7 @@ services:
       - DATABASE_URL=postgresql://admin:admin@postgres:5432/sentinela
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
+      - YOUTUBE_API_KEY=AIzaSyCWAE56Sxl7m_0GPOhImS20Fo8HuUjmmDk
     restart: on-failure
     networks:
       - sentinela_network
