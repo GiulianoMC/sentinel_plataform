@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+# Importamos o use case
 from app.use_cases.IngestionRouter.execute_ingestion import execute_ingestion_use_case
 
 router = APIRouter(
@@ -10,22 +11,23 @@ router = APIRouter(
 
 class NovoComentario(BaseModel):
     texto: str
-    video_id: str
+    youtube_id: str # <-- MUDANÇA AQUI (padronizado)
 
 @router.post("/comentario")
 def ingerir_novo_comentario(comentario: NovoComentario):
     """
     Endpoint para receber um novo comentário manualmente.
-    Agora requer um 'video_id' para associar o comentário.
+    Requer um 'youtube_id' para associar o comentário.
     """
     
+    # Chamamos o use case com os nomes corretos
     resultado = execute_ingestion_use_case(
         comment_text=comentario.texto,
-        video_id=comentario.video_id 
+        video_id=comentario.youtube_id # <-- MUDANÇA AQUI
     )
 
     return {
         "status": "Comentário recebido e agendado para processamento.",
         "comment_id": resultado["comment_id"],
-        "associated_video_id": comentario.video_id
+        "associated_youtube_id": comentario.youtube_id
     }
