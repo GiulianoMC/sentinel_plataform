@@ -18,7 +18,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./chroma_data:/data/chroma
+      - ./chroma_data:/chroma/chroma
     environment:
       - IS_PERSISTENT=TRUE
       - ANONYMIZED_TELEMETRY=FALSE
@@ -60,7 +60,7 @@ services:
       - DATABASE_URL=postgresql://admin:admin@postgres:5432/sentinela
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
-      - YOUTUBE_API_KEY=AIzaSyCWAE56Sxl7m_0GPOhImS20Fo8HuUjmmDk
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
     restart: on-failure
     networks:
       - sentinela_network
@@ -81,7 +81,7 @@ services:
       - DATABASE_URL=postgresql://admin:admin@postgres:5432/sentinela
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
-      - YOUTUBE_API_KEY=AIzaSyCWAE56Sxl7m_0GPOhImS20Fo8HuUjmmDk
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
     restart: on-failure
     networks:
       - sentinela_network
@@ -102,7 +102,7 @@ services:
       - DATABASE_URL=postgresql://admin:admin@postgres:5432/sentinela
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
-      - YOUTUBE_API_KEY=AIzaSyCWAE56Sxl7m_0GPOhImS20Fo8HuUjmmDk
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
     restart: on-failure
     networks:
       - sentinela_network

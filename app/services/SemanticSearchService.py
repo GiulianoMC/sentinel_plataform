@@ -5,6 +5,8 @@ import logging
 import time
 import urllib.request
 import urllib.error
+import os
+from typing import Optional
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,13 +18,16 @@ class SemanticSearchService:
     Singleton por worker para otimizar carregamento.
     """
 
-    def __init__(self, model_name='paraphrase-multilingual-mpnet-base-v2', chroma_url="http://chromadb:8000"):
+    def __init__(self, model_name='paraphrase-multilingual-mpnet-base-v2'):
+        
+        self.chroma_host = os.environ.get('CHROMA_HOST', 'chromadb')
+        self.chroma_port = os.environ.get('CHROMA_PORT', '8000')
+        self.chroma_url = f"http://{self.chroma_host}:{self.chroma_port}"
+        
         self.model_name = model_name
-        self.chroma_url = chroma_url
         self.collection_cache = {}
         self._chroma_client = None
 
-        # Carrega o modelo Hugging Face
         logger.info("--- A carregar o modelo de IA Hugging Face... Isto pode demorar. ---")
         self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=model_name)
         self.model = self.embedding_function.models[model_name]
@@ -50,8 +55,8 @@ class SemanticSearchService:
             try:
                 settings = Settings(
                     chroma_api_impl="chromadb.api.fastapi.FastAPI",
-                    chroma_server_host="chromadb",
-                    chroma_server_http_port="8000"
+                    chroma_server_host=self.chroma_host,
+                    chroma_server_http_port=self.chroma_port
                 )
                 self._chroma_client = chromadb.Client(settings=settings)
                 logger.info("--- ChromaDB conectado com sucesso! ---")
@@ -89,13 +94,24 @@ class SemanticSearchService:
         else:
             logger.info(f"--- Coleção '{collection_name}' já contém {collection.count()} documentos. ---")
 
-    def search(self, query: str, num_results: int = 2) -> list[str]:
-        """Busca semanticamente na coleção."""
+    def search(self, query: str, video_id_filter: Optional[str] = None, num_results: int = 2) -> list[str]:
+        """
+        Busca semanticamente na coleção, com filtro opcional de video_id.
+        """
         collection_name = "comentarios_produtos"
         collection = self.get_collection(collection_name)
-        logger.info(f"--- Buscando: '{query}' ---")
-        results = collection.query(
-            query_texts=[query],
-            n_results=num_results
-        )
+        
+        query_params = {
+            "query_texts": [query],
+            "n_results": num_results
+        }
+        
+        if video_id_filter:
+            query_params["where"] = {"video_id": video_id_filter}
+            logger.info(f"--- Buscando: '{query}' (FILTRADO para video_id: {video_id_filter}) ---")
+        else:
+            logger.info(f"--- Buscando: '{query}' (em TODOS os vídeos) ---")
+
+        results = collection.query(**query_params)
+                
         return results['documents'][0] if results and 'documents' in results and results['documents'] else []
