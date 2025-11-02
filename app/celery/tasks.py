@@ -1,35 +1,29 @@
-import time
+import uuid
 from .celery_app import celery
-
 from app.services.SemanticSearchService import SemanticSearchService
 
 COLLECTION_NAME = "comentarios_produtos"
 
+# --- Instância global por worker ---
+semantic_service = SemanticSearchService()
+collection = semantic_service.get_collection(COLLECTION_NAME)
+
 @celery.task(bind=True)
 def processar_novo_comentario(self, comment_id: str, comment_text: str):
     """
-    Task real do Celery para processar e salvar um novo comentário.
+    Task Celery que processa e salva um comentário.
     """
     print(f"--- [WORKER] Recebi a Tarefa: Processar comentário {comment_id} ---")
-    
     try:
-        service = SemanticSearchService()
-
-        collection = service.chroma_client.get_or_create_collection(
-            name=COLLECTION_NAME,
-            embedding_function=service.embedding_function 
-        )
-        print(f"[WORKER] Coleção '{COLLECTION_NAME}' assegurada.")
-
         print(f"[WORKER] A gerar embedding para {comment_id}...")
-        embedding = service.model.encode([comment_text])
-        
+        embedding = semantic_service.model.encode([comment_text])
+
         collection.add(
             embeddings=embedding.tolist(),
             documents=[comment_text],
             ids=[comment_id]
         )
-        
+
         print(f"[WORKER] Embedding do comentário {comment_id} salvo no ChromaDB.")
         print(f"--- [WORKER] Tarefa {comment_id} concluída com sucesso! ---")
         return f"Comentário {comment_id} processado."
