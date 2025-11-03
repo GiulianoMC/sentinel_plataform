@@ -67,14 +67,14 @@ Certifique-se de que tem o Git, Docker e Docker Compose instalados na sua máqui
 
 📖 Fluxo de Uso Básico
 
- 1. Cadastre um Vídeo:
+1. Cadastre um Vídeo:
 
    - Aceda à documentação da API: http://localhost:8001/docs.
 
    - Use o endpoint POST /video/register.
 
    - Submeta o URL de um vídeo do YouTube que você deseja monitorizar (ex: {"video_url": "https://www.youtube.com/watch?v=..."}).
-
+     
 2. Aguarde a Coleta Automática:
 
    - O Celery Beat (o nosso "relógio") irá detetar o novo vídeo na sua próxima verificação (a cada 60 segundos).
@@ -83,10 +83,11 @@ Certifique-se de que tem o Git, Docker e Docker Compose instalados na sua máqui
 
    - Você pode observar este processo em tempo real nos logs do docker-compose.
 
- 3. Faça uma Busca Semântica:
+3. Faça uma Busca Semântica:
 
    - Use o endpoint POST /semantic-search/semantic-search.
 
    - Faça uma pergunta (ex: {"query": "opiniões sobre a bateria"}).
 
-Para uma busca mais rápida e filtrada, passe o youtube_id que você deseja pesquisar (ex: {"query": "opiniões sobre a bateria", "youtube_id": "vPsayRIEJmE"}).
+   - Para uma busca mais rápida e filtrada, passe o youtube_id que você deseja pesquisar (ex: {"query": "opiniões sobre a bateria", "youtube_id": "vPsayRIEJmE"}).
+
