@@ -13,8 +13,8 @@ class GeminiService:
         
         genai.configure(api_key=api_key)
         
-        # O modelo gemini-1.5-flash é a melhor escolha: rápido e económico
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        # Modelo atualizado - gemini-2.0-flash é a versão mais recente
+        self.model = genai.GenerativeModel('gemini-2.0-flash')
 
     def analyze_comment(self, comment_text: str) -> CommentAnalysisResponse:
         system_instruction = """

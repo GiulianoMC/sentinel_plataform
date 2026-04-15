@@ -74,7 +74,16 @@ def fetch_novos_comentarios_youtube(video_id: str, published_after: Optional[dat
                 if published_after:
                     comment_published_at_dt = parser.isoparse(comment_published_at_str)
 
-                    if comment_published_at_dt <= published_after:
+                    # Normaliza para UTC se nao tiver timezone
+                    if comment_published_at_dt.tzinfo is None:
+                        comment_published_at_dt = comment_published_at_dt.replace(tzinfo=timezone.utc)
+
+                    # Garante que published_after tambem tem timezone
+                    ultimo_visto_dt = published_after
+                    if ultimo_visto_dt.tzinfo is None:
+                        ultimo_visto_dt = ultimo_visto_dt.replace(tzinfo=timezone.utc)
+
+                    if comment_published_at_dt <= ultimo_visto_dt:
                         stop_processing = True
                         break
 
