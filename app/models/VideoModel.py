@@ -7,18 +7,19 @@ from app.database import Base
 class Video(Base):
     __tablename__ = "videos"
     id = Column(Integer, primary_key=True, index=True)
-    video_id = Column(String, unique=True, index=True, nullable=False)
-    title = Column(String, nullable=False)
-    channel_id = Column(String, nullable=False)
-    published_at = Column(DateTime, nullable=False)
+    youtube_id = Column(String, unique=True, index=True, nullable=False)
+    titulo = Column(String, nullable=False)
+    channel_id = Column(String, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    ultimo_comentario_verificado_em = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
-    
+
     comments = relationship("Comment", back_populates="video")
 
 class Comment(Base):
     __tablename__ = "comments"
-    id = Column(Integer, primary_key=True, index=True)
-    video_id = Column(String, ForeignKey("videos.video_id"), nullable=False)
+    id = Column(String, primary_key=True, index=True)
+    youtube_id = Column(String, ForeignKey("videos.youtube_id"), nullable=False)
     author = Column(String, nullable=False)
     text = Column(Text, nullable=False)
     published_at = Column(DateTime, nullable=False)

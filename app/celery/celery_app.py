@@ -7,13 +7,13 @@ celery = Celery(
     'app',
     broker=BROKER_URL,
     backend='rpc://',
-    # --- ATUALIZAÇÃO: Incluímos o novo ficheiro de tasks do coletor ---
-    include=['app.celery.tasks', 'app.celery.collector_tasks'] 
+    # Incluimos todos os modulos de tasks
+    include=['app.celery.tasks', 'app.celery.collector_tasks', 'app.celery.ai_tasks']
 )
 
 celery.conf.beat_schedule = {
     'coletar-comentarios-a-cada-5-minutos': {
         'task': 'app.celery.collector_tasks.coletar_comentarios_youtube',
-        'schedule': 60.0, 
+        'schedule': 60.0,
     },
 }

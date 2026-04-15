@@ -18,14 +18,14 @@ class VideoRegisterRequest(BaseModel):
     titulo: Optional[str] = None
 
 class VideoResponse(BaseModel):
-    id: str
+    id: int
     youtube_id: str
     titulo: Optional[str]
-    criado_em: datetime
+    created_at: datetime
     ultimo_comentario_verificado_em: Optional[datetime]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 @router.post("/register")
