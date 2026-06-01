@@ -4,7 +4,7 @@ Schemas Pydantic para as respostas da API de Analytics.
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 class VideoSummaryResponse(BaseModel):
@@ -44,6 +44,18 @@ class TopProductsResponse(BaseModel):
     """Resposta com os produtos mais mencionados."""
     youtube_id: str = Field(..., description="ID do vídeo no YouTube")
     products: List[ProductData] = Field(default_factory=list, description="Lista de produtos")
+
+    class Config:
+        from_attributes = True
+
+
+class SentimentDistributionResponse(BaseModel):
+    """Resposta com a distribuição de sentimentos (notas 1 a 5)."""
+    youtube_id: str = Field(..., description="ID do vídeo no YouTube")
+    distribution: Dict[str, int] = Field(
+        ...,
+        description="Contagem de comentários por nota de sentimento (chaves '1' a '5')"
+    )
 
     class Config:
         from_attributes = True

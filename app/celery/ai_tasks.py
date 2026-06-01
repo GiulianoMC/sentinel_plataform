@@ -2,13 +2,17 @@
 from .celery_app import celery
 from app.database import SessionLocal
 from app.models.VideoModel import Comment
-from app.services.GeminiService import GeminiService
+from app.services.LLMService import LLMService
 
-# Instanciamos o servico fora da task para otimizar recursos, tal como fez no SemanticSearch
-gemini_service = GeminiService()
+# Instanciamos o servico fora da task para otimizar recursos, tal como fez no SemanticSearch.
+# (Antigo GeminiService — substituido por LLMService usando Groq por causa do limit: 0 do Gemini free tier.)
+llm_service = LLMService()
 
 
-@celery.task(bind=True, max_retries=3, default_retry_delay=60, retry_backoff=True)
+# rate_limit é aplicado por worker (todos os processos prefork compartilham o balde de tokens),
+# então limita o total de chamadas ao Gemini por minuto e evita estourar a quota do free tier.
+# Ajuste conforme o limite RPM do seu modelo/plano.
+@celery.task(bind=True, max_retries=3, default_retry_delay=60, retry_backoff=True, rate_limit="10/m")
 def process_comments_with_ai(self, comment_id: str, comment_text: str):
     """
     Task Celery exclusiva para processamento de IA (Fase 2).
@@ -26,9 +30,9 @@ def process_comments_with_ai(self, comment_id: str, comment_text: str):
             print(f"[AI WORKER] Comentario {comment_id} nao encontrado. Possivel race condition. Retentando...")
             raise self.retry(countdown=5, max_retries=5)
 
-        # Faz a chamada a IA (Gemini)
-        print(f"[AI WORKER] A enviar texto para analise Gemini: {comment_text[:50]}...")
-        analysis = gemini_service.analyze_comment(comment_text)
+        # Faz a chamada a IA (LLM)
+        print(f"[AI WORKER] A enviar texto para analise LLM: {comment_text[:50]}...")
+        analysis = llm_service.analyze_comment(comment_text)
         print(f"[AI WORKER] Resultado IA: Sentimento {analysis.sentiment}, Intencao {analysis.intent}")
 
         # Atualiza o comentario com os resultados da IA
