@@ -109,16 +109,18 @@ class AnalyticsRepository:
         if not self._video_exists(youtube_id):
             return None
 
-        # Query otimizada: GROUP BY product_mentioned, COUNT(*), AVG(sentiment)
+        # Normaliza para lowercase+trim antes de agrupar para consolidar variantes de capitalização
+        normalized = func.lower(func.trim(Comment.product_mentioned))
+
         results = self.db.query(
-            Comment.product_mentioned.label('product_name'),
+            normalized.label('product_name'),
             func.count(Comment.id).label('count'),
             func.avg(Comment.sentiment).label('average_sentiment')
         ).filter(
             Comment.youtube_id == youtube_id,
-            Comment.product_mentioned.isnot(None)  # Ignora nulos
+            Comment.product_mentioned.isnot(None)
         ).group_by(
-            Comment.product_mentioned
+            normalized
         ).having(
             func.count(Comment.id) >= min_mentions
         ).order_by(

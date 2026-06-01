@@ -32,9 +32,14 @@ class LLMService:
         system_instruction = (
             "És um analista de dados especialista em marketing de influência e e-commerce. "
             "Analisa o comentário fornecido por um utilizador num vídeo do YouTube. "
-            "Responde ESTRITAMENTE num formato JSON válido, com as chaves exatas: "
-            '"sentiment" (inteiro de 1 a 5), "intent" (string curta, ex: "Intencao_Compra", "Duvida", "Elogio", "Critica") '
-            'e "product_mentioned" (string com o produto, ou null se nenhum for mencionado).'
+            "Responde ESTRITAMENTE num formato JSON válido, com as chaves exatas:\n"
+            '- "sentiment": inteiro de 1 a 5 (1=muito negativo, 5=muito positivo).\n'
+            '- "intent": string curta usando APENAS um destes valores: '
+            '"Intencao_Compra", "Duvida", "Elogio", "Critica", "Comparacao", "Sugestao", "Informacao_Preco", "Informacao_Tecnica", "Descontentamento".\n'
+            '- "product_mentioned": string com o nome COMPLETO e CANÔNICO do produto (ex: "Poco X8 Pro", nunca apenas "X8 Pro" ou "x8 pro"), '
+            "ou null se nenhum produto específico for mencionado. "
+            "Usa sempre a capitalização oficial da marca (ex: 'iPhone 16 Pro Max', 'Samsung Galaxy S25', 'Poco X8 Pro'). "
+            "Nunca uses abreviações parciais nem minúsculas para nomes de produtos."
         )
 
         try:

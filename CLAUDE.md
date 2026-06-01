@@ -26,6 +26,8 @@ Services and ports:
 
 Required env vars (set in `.env`, passed through `docker-compose.yml`): `YOUTUBE_API_KEY`, `GROQ_API_KEY`. Optional: `LLM_MODEL` (default `llama-3.3-70b-versatile`). `DATABASE_URL`, `CHROMA_HOST`, `CHROMA_PORT` are set by compose.
 
+Celery is configured in [app/celery/celery_app.py](app/celery/celery_app.py): broker/backend point to RabbitMQ, and the beat schedule registers `coletar_comentarios_youtube` at a 60-second interval.
+
 There is **no test suite, linter, or migration runner wired up**. Although `alembic` is in requirements, tables are created at runtime via `VideoModel.Base.metadata.create_all` in the FastAPI `lifespan` ([app/main.py](app/main.py)) — schema changes to models take effect on container restart only for *new* tables/columns (no automatic ALTER).
 
 ## Architecture
@@ -47,8 +49,9 @@ If ChromaDB succeeds but Postgres failed, it compensates by deleting the Chroma 
 ### Layering convention
 
 Routers → use cases → services/repositories. Routers ([app/routers/](app/routers/)) only handle HTTP/Pydantic and delegate. Business logic lives in [app/use_cases/](app/use_cases/). Two distinct data-access styles coexist:
-- **Services** ([app/services/](app/services/)) wrap external systems (ChromaDB, Gemini) and are instantiated **once per worker process** as module-level globals to amortize model loading — `SemanticSearchService` loads the `paraphrase-multilingual-mpnet-base-v2` sentence-transformer at construction. Do not instantiate these per-request.
-- **Repositories** ([app/repositories/](app/repositories/)) take a SQLAlchemy `Session` and do DB queries. `AnalyticsRepository` pushes all aggregation (COUNT/AVG/GROUP BY) into Postgres rather than loading rows.
+- **Services** ([app/services/](app/services/)) wrap external systems (ChromaDB, Groq) and are instantiated **once per worker process** as module-level globals to amortize model loading — `SemanticSearchService` loads the `paraphrase-multilingual-mpnet-base-v2` sentence-transformer at construction. Do not instantiate these per-request.
+- **Repositories** ([app/repositories/](app/repositories/)) take a SQLAlchemy `Session` and do DB queries. `AnalyticsRepository` pushes all aggregation (COUNT/AVG/GROUP BY) into Postgres rather than loading rows. `CommentRepository` ([app/repositories/CommentRepository.py](app/repositories/CommentRepository.py)) is a test-data helper with hardcoded Portuguese mock comments — not used in the live pipeline.
+- **Schemas** ([app/schemas/](app/schemas/)) hold Pydantic models for API responses: `AnalyticsSchema.py` (summary, intentions, products, sentiment distribution) and `LLMAnalysisSchema.py` (`CommentAnalysisResponse` with `sentiment`, `intent`, `product_mentioned`).
 
 ### Two data stores, by design
 
@@ -68,3 +71,4 @@ The shared `SemanticSearchService` for the API process lives in `app_state` ([ap
 - LLM output is coerced into the `CommentAnalysisResponse` Pydantic schema; on any failure `LLMService.analyze_comment` ([app/services/LLMService.py](app/services/LLMService.py), Groq + Llama 3.3 with JSON mode) returns a safe default (`sentiment=3, intent="Erro_IA"`) rather than raising, so bad AI responses never corrupt the DB. To recover those rows after fixing the LLM, call `POST /reprocess/ai` ([app/routers/ReprocessRouter.py](app/routers/ReprocessRouter.py)) — by default it re-enqueues only the `Erro_IA` ones.
 - Sentiment is an integer scale 1–5; `intent` and `product_mentioned` are free-form strings from the LLM.
 - The collector and `register_video` both degrade gracefully when `YOUTUBE_API_KEY` is missing (log a warning, skip the API call).
+- `chromadb` is pinned to `0.4.15` in `requirements.txt` — the client API changed significantly in 0.5.x. Do not upgrade without auditing `SemanticSearchService` against the new API.

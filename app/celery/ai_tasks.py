@@ -12,7 +12,7 @@ llm_service = LLMService()
 # rate_limit é aplicado por worker (todos os processos prefork compartilham o balde de tokens),
 # então limita o total de chamadas ao Gemini por minuto e evita estourar a quota do free tier.
 # Ajuste conforme o limite RPM do seu modelo/plano.
-@celery.task(bind=True, max_retries=3, default_retry_delay=60, retry_backoff=True, rate_limit="10/m")
+@celery.task(bind=True, max_retries=3, default_retry_delay=60, retry_backoff=True, rate_limit="28/m")
 def process_comments_with_ai(self, comment_id: str, comment_text: str):
     """
     Task Celery exclusiva para processamento de IA (Fase 2).
