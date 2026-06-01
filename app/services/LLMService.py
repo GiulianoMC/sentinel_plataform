@@ -10,7 +10,7 @@ contrato (devolve um CommentAnalysisResponse).
 
 import os
 import json
-from groq import Groq
+from groq import Groq, RateLimitError
 
 from app.schemas.LLMAnalysisSchema import CommentAnalysisResponse
 
@@ -58,8 +58,12 @@ class LLMService:
 
             return CommentAnalysisResponse(**result_dict)
 
+        except RateLimitError:
+            # Re-lança para o Celery tratar o retry com o tempo correto de espera.
+            # Não gravar Erro_IA — o comentário ainda vai ser analisado quando a cota recuperar.
+            raise
+
         except Exception as e:
             print(f"[LLMService] Erro ao processar comentário: {e}")
-            # Mesma estratégia de safe-default do GeminiService anterior:
-            # nunca quebra o pipeline; comentário fica marcado como Erro_IA até reprocessar.
+            # Safe-default apenas para erros que não são de rate limit (JSON inválido, etc.)
             return CommentAnalysisResponse(sentiment=3, intent="Erro_IA", product_mentioned=None)

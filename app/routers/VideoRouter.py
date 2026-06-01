@@ -2,11 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
-from typing import Optional, List 
-from datetime import datetime 
+from app.dependencies import get_search_service
+from app.services.SemanticSearchService import SemanticSearchService
+from typing import Optional, List
+from datetime import datetime
 
 from app.use_cases.Video.register_video import register_video_use_case
 from app.use_cases.Video.list_videos import list_videos_use_case
+from app.use_cases.Video.delete_video import delete_video_use_case
 
 router = APIRouter(
     prefix="/video",
@@ -60,3 +63,18 @@ def list_videos(db: Session = Depends(get_db)):
         return videos
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro inesperado: {e}")
+
+
+@router.delete("/{youtube_id}")
+def delete_video(
+    youtube_id: str,
+    db: Session = Depends(get_db),
+    search_service: SemanticSearchService = Depends(get_search_service),
+):
+    """
+    Remove o vídeo e todos os seus comentários (PostgreSQL + ChromaDB).
+    """
+    result = delete_video_use_case(db, youtube_id, search_service)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Vídeo '{youtube_id}' não encontrado.")
+    return result
