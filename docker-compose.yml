@@ -87,11 +87,15 @@ services:
       - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - LLM_MODEL=${LLM_MODEL:-llama-3.3-70b-versatile}
+      - LLM_PROVIDER=${LLM_PROVIDER:-groq}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: on-failure
     networks:
       - sentinela_network
 
-  # Worker de IA: apenas chamadas Groq (I/O-bound) — concorrência maior, nunca bloqueado pelo embedding
+  # Worker de IA: chamadas ao LLM (I/O-bound) — suporta Groq e Ollama local
   worker_ai:
     build: .
     container_name: 'sentinela_worker_ai'
@@ -109,6 +113,10 @@ services:
       - CHROMA_PORT=8000
       - GROQ_API_KEY=${GROQ_API_KEY}
       - LLM_MODEL=${LLM_MODEL:-llama-3.3-70b-versatile}
+      - LLM_PROVIDER=${LLM_PROVIDER:-groq}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: on-failure
     networks:
       - sentinela_network

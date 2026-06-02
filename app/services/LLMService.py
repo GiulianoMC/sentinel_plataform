@@ -1,34 +1,47 @@
 # app/services/LLMService.py
 """
-Serviço de análise de comentários via LLM (Groq).
+Suporta dois providers via API compatível com OpenAI:
+  - LLM_PROVIDER=groq   (default) → Groq cloud, modelo llama-3.3-70b-versatile
+  - LLM_PROVIDER=ollama           → Ollama local, modelo llama3.2 (sem limites de cota)
 
-Substitui o GeminiService — o Gemini free tier ficou inviável (limit: 0).
-A Groq oferece os modelos Llama 3.x grátis com cota generosa e JSON mode,
-e a API é praticamente igual à do OpenAI, então a migração mantém o mesmo
-contrato (devolve um CommentAnalysisResponse).
+Para Ollama: instalar em https://ollama.com e executar `ollama pull <modelo>`.
 """
 
 import os
 import json
-from groq import Groq, RateLimitError
+from openai import OpenAI, RateLimitError, APIConnectionError
 
 from app.schemas.LLMAnalysisSchema import CommentAnalysisResponse
 
 
+# Excepção pública usada por ai_tasks para retry — independente do provider
+class LLMRateLimitError(Exception):
+    def __init__(self, message: str, retry_after_seconds: int = 300):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
 class LLMService:
     def __init__(self):
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            raise ValueError("A variável de ambiente GROQ_API_KEY não está configurada.")
+        provider = os.getenv("LLM_PROVIDER", "groq").lower()
 
-        # Modelo configurável via env (ajuste se a Groq mover/depreciar):
-        # - llama-3.3-70b-versatile  -> melhor qualidade (default)
-        # - llama-3.1-8b-instant     -> mais rápido e barato em tokens
-        self.model = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
-        self.client = Groq(api_key=api_key)
+        if provider == "ollama":
+            base_url = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434/v1")
+            self.model = os.getenv("LLM_MODEL", "llama3.2")
+            self.client = OpenAI(base_url=base_url, api_key="ollama")
+            print(f"[LLMService] Provider: Ollama — {base_url} — modelo: {self.model}")
+        else:
+            api_key = os.getenv("GROQ_API_KEY")
+            if not api_key:
+                raise ValueError("A variável de ambiente GROQ_API_KEY não está configurada.")
+            self.model = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
+            self.client = OpenAI(
+                base_url="https://api.groq.com/openai/v1",
+                api_key=api_key,
+            )
+            print(f"[LLMService] Provider: Groq — modelo: {self.model}")
 
     def analyze_comment(self, comment_text: str) -> CommentAnalysisResponse:
-        # JSON mode da Groq exige a palavra "JSON" no prompt; já está no system_instruction.
         system_instruction = (
             "És um analista de dados especialista em marketing de influência e e-commerce. "
             "Analisa o comentário fornecido por um utilizador num vídeo do YouTube. "
@@ -36,9 +49,9 @@ class LLMService:
             '- "sentiment": inteiro de 1 a 5 (1=muito negativo, 5=muito positivo).\n'
             '- "intent": string curta usando APENAS um destes valores: '
             '"Intencao_Compra", "Duvida", "Elogio", "Critica", "Comparacao", "Sugestao", "Informacao_Preco", "Informacao_Tecnica", "Descontentamento".\n'
-            '- "product_mentioned": string com o nome COMPLETO e CANÔNICO do produto (ex: "Poco X8 Pro", nunca apenas "X8 Pro" ou "x8 pro"), '
+            '- "product_mentioned": string com o nome COMPLETO e CANÔNICO do produto (ex: "Poco X8 Pro"), '
             "ou null se nenhum produto específico for mencionado. "
-            "Usa sempre a capitalização oficial da marca (ex: 'iPhone 16 Pro Max', 'Samsung Galaxy S25', 'Poco X8 Pro'). "
+            "Usa sempre a capitalização oficial da marca. "
             "Nunca uses abreviações parciais nem minúsculas para nomes de produtos."
         )
 
@@ -55,15 +68,24 @@ class LLMService:
 
             raw = response.choices[0].message.content
             result_dict = json.loads(raw)
-
             return CommentAnalysisResponse(**result_dict)
 
-        except RateLimitError:
-            # Re-lança para o Celery tratar o retry com o tempo correto de espera.
-            # Não gravar Erro_IA — o comentário ainda vai ser analisado quando a cota recuperar.
+        except APIConnectionError:
+            # Ollama não acessível ou Groq com problema de rede — re-lança para retry do Celery
             raise
+
+        except RateLimitError as e:
+            # Extrai tempo de espera da mensagem do Groq e re-lança como excepção própria
+            import re
+            match = re.search(r'try again in (?:(\d+)m)?(\d+(?:\.\d+)?)s', str(e))
+            if match:
+                minutes = int(match.group(1) or 0)
+                seconds = float(match.group(2))
+                wait = int(minutes * 60 + seconds) + 5
+            else:
+                wait = 300
+            raise LLMRateLimitError(str(e), retry_after_seconds=wait)
 
         except Exception as e:
             print(f"[LLMService] Erro ao processar comentário: {e}")
-            # Safe-default apenas para erros que não são de rate limit (JSON inválido, etc.)
             return CommentAnalysisResponse(sentiment=3, intent="Erro_IA", product_mentioned=None)
