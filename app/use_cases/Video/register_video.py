@@ -81,7 +81,15 @@ def register_video_use_case(db: Session, video_url: str, titulo: Optional[str] =
     db.add(novo_video)
     db.commit()
     db.refresh(novo_video)
-    
+
     print(f"--- [API/Use Case] Novo vídeo registado: {youtube_id} (Título: {titulo_final}) ---")
-    
+
+    # Dispara coleta imediatamente em vez de esperar o próximo ciclo do Beat (60s)
+    try:
+        from app.celery.collector_tasks import coletar_comentarios_youtube
+        coletar_comentarios_youtube.delay()
+        print(f"--- [API/Use Case] Coleta imediata disparada para {youtube_id} ---")
+    except Exception as e:
+        print(f"--- [API/Use Case] Aviso: não foi possível disparar coleta imediata: {e} ---")
+
     return novo_video
