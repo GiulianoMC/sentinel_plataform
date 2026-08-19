@@ -5,6 +5,7 @@ Schemas Pydantic para as respostas da API de Analytics.
 
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
+from datetime import datetime
 
 
 class VideoSummaryResponse(BaseModel):
@@ -61,6 +62,31 @@ class SentimentDistributionResponse(BaseModel):
         from_attributes = True
 
 
+class VideoOverviewItem(BaseModel):
+    """Dados de um vídeo na visão geral do usuário."""
+    youtube_id: str = Field(..., description="ID do vídeo no YouTube")
+    titulo: str = Field(..., description="Título do vídeo")
+    created_at: datetime = Field(..., description="Data de registro do vídeo")
+    total_comments: int = Field(..., description="Total de comentários no vídeo")
+    analyzed_comments: int = Field(..., description="Comentários analisados pela IA (com sentiment)")
+    average_sentiment: Optional[float] = Field(None, description="Média de sentimento (1-5)")
+
+    class Config:
+        from_attributes = True
+
+
+class OverviewResponse(BaseModel):
+    """Visão geral de todos os vídeos do usuário autenticado."""
+    total_videos: int = Field(..., description="Número total de vídeos registrados")
+    total_comments: int = Field(..., description="Total de comentários em todos os vídeos")
+    analyzed_comments: int = Field(..., description="Comentários analisados pela IA em todos os vídeos")
+    average_sentiment: Optional[float] = Field(None, description="Média geral de sentimento (1-5), ponderada por comentários analisados")
+    videos: List[VideoOverviewItem] = Field(default_factory=list, description="Lista de vídeos do usuário")
+
+    class Config:
+        from_attributes = True
+
+
 __all__ = [
     "VideoSummaryResponse",
     "IntentData",
@@ -68,4 +94,6 @@ __all__ = [
     "ProductData",
     "TopProductsResponse",
     "SentimentDistributionResponse",
+    "VideoOverviewItem",
+    "OverviewResponse",
 ]

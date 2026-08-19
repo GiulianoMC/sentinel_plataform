@@ -176,3 +176,72 @@ class AnalyticsRepository:
             'youtube_id': youtube_id,
             'distribution': distribution
         }
+
+    def get_overview(self, user_id: int) -> dict:
+        """
+        Retorna visão geral de todos os vídeos do usuário: totais agregados
+        e dados por vídeo (total/analisados/sentimento médio).
+
+        Uma única query: LEFT JOIN vídeos -> comentários com GROUP BY v.id;
+        a média geral de sentimento é calculada no Python, ponderada pela
+        quantidade de comentários analisados de cada vídeo.
+
+        Args:
+            user_id: ID do usuário autenticado
+
+        Returns:
+            Dicionário com total_videos, total_comments, analyzed_comments,
+            average_sentiment e lista de vídeos
+        """
+        results = self.db.query(
+            Video.youtube_id.label('youtube_id'),
+            Video.titulo.label('titulo'),
+            Video.created_at.label('created_at'),
+            func.count(Comment.id).label('total_comments'),
+            func.count(Comment.sentiment).label('analyzed_comments'),
+            func.avg(Comment.sentiment).label('average_sentiment')
+        ).outerjoin(
+            Comment, Comment.youtube_id == Video.youtube_id
+        ).filter(
+            Video.user_id == user_id
+        ).group_by(
+            Video.id
+        ).order_by(
+            Video.created_at
+        ).all()
+
+        videos = []
+        total_comments = 0
+        analyzed_comments = 0
+        weighted_sentiment_sum = 0.0
+
+        for row in results:
+            row_total = row.total_comments or 0
+            row_analyzed = row.analyzed_comments or 0
+            row_avg = float(row.average_sentiment) if row.average_sentiment is not None else None
+
+            total_comments += row_total
+            analyzed_comments += row_analyzed
+            if row_avg is not None:
+                weighted_sentiment_sum += row_avg * row_analyzed
+
+            videos.append({
+                'youtube_id': row.youtube_id,
+                'titulo': row.titulo,
+                'created_at': row.created_at,
+                'total_comments': row_total,
+                'analyzed_comments': row_analyzed,
+                'average_sentiment': row_avg,
+            })
+
+        average_sentiment = (
+            round(weighted_sentiment_sum / analyzed_comments, 2) if analyzed_comments > 0 else None
+        )
+
+        return {
+            'total_videos': len(videos),
+            'total_comments': total_comments,
+            'analyzed_comments': analyzed_comments,
+            'average_sentiment': average_sentiment,
+            'videos': videos,
+        }

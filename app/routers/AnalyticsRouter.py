@@ -9,6 +9,7 @@ from app.schemas.AnalyticsSchema import (
     IntentionsResponse,
     TopProductsResponse,
     SentimentDistributionResponse,
+    OverviewResponse,
 )
 from app.models.UserModel import User
 
@@ -23,6 +24,20 @@ def _check_video_ownership(db: Session, youtube_id: str, user_id: int) -> bool:
     from app.models.VideoModel import Video
     video = db.query(Video).filter(Video.youtube_id == youtube_id, Video.user_id == user_id).first()
     return video is not None
+
+
+@router.get("/overview", response_model=OverviewResponse)
+def get_overview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Visão geral de todos os vídeos do usuário autenticado: totais agregados
+    (vídeos, comentários, analisados, sentimento médio) e dados por vídeo.
+    Substitui as N chamadas a /{youtube_id}/summary no dashboard.
+    """
+    repo = AnalyticsRepository(db)
+    return repo.get_overview(current_user.id)
 
 
 @router.get("/{youtube_id}/summary", response_model=VideoSummaryResponse)
