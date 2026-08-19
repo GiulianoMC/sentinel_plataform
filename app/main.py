@@ -8,34 +8,40 @@ from app.services.SemanticSearchService import SemanticSearchService
 from app.dependencies import app_state
 from app.core.rate_limiter import limiter
 
-from app.database import engine, Base
-from app.models import VideoModel, UserModel
+from app.database import engine
 
 from app.routers import (
     SemanticSearchRouter, IngestionRouter, VideoRouter, 
     AnalyticsRouter, ReprocessRouter, auth_router, AdminRouter
 )
 
+def _ensure_migrations() -> None:
+    """Aplica as migrações Alembic antes de servir qualquer requisição.
+
+    Alembic é a única fonte de verdade do schema. Bancos legados criados via
+    create_all não possuem a tabela alembic_version, mas o schema gerado por
+    create_all corresponde ao head das migrações; nesse caso, marca-se o
+    baseline (stamp head) para o upgrade não tentar recriar tabelas existentes.
+    """
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import inspect
+
+    cfg = Config("alembic.ini")
+    cfg.set_main_option("script_location", "alembic")
+
+    inspector = inspect(engine)
+    if not inspector.has_table("alembic_version") and inspector.get_table_names():
+        command.stamp(cfg, "head")
+        print("--- [API] Banco legado (create_all) marcado como baseline alembic. ---")
+
+    command.upgrade(cfg, "head")
+    print("--- [API] Migrações aplicadas (alembic upgrade head). ---")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    
-    print("--- [API] A criar tabelas do banco de dados (se não existirem)... ---")
-    Base.metadata.create_all(bind=engine)
-    print("--- [API] Tabelas criadas com sucesso. ---")
 
-    # create_all não altera tabelas já existentes. Se o banco é de antes da
-    # autenticação, a coluna videos.user_id não existe e todas as queries com
-    # Video.user_id quebrariam com "column does not exist". Falhe cedo e
-    # instrua a aplicar as migrações.
-    from sqlalchemy import inspect
-    inspector = inspect(engine)
-    if "videos" in inspector.get_table_names():
-        columns = {c["name"] for c in inspector.get_columns("videos")}
-        if "user_id" not in columns:
-            raise RuntimeError(
-                "O banco de dados existente não possui a coluna 'videos.user_id'. "
-                "Aplique as migrações: docker-compose run --rm api alembic upgrade head"
-            )
+    _ensure_migrations()
 
     service = SemanticSearchService()
     

@@ -43,20 +43,16 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_revoked_tokens_expires_at'), 'revoked_tokens', ['expires_at'], unique=False)
 
-    # Add user_id column to videos table with FK
-    op.add_column('videos', sa.Column('user_id', sa.Integer(), nullable=True))
+    # user_id já existe na tabela videos (criada na migração 000); aqui
+    # apenas adicionamos o índice e a FK para a tabela users.
     op.create_index(op.f('ix_videos_user_id'), 'videos', ['user_id'], unique=False)
     op.create_foreign_key('fk_videos_user_id_users', 'videos', 'users', ['user_id'], ['id'], ondelete='CASCADE')
 
-    # Make user_id NOT NULL after populating (if there are existing videos, they need a default user)
-    # For now we'll keep it nullable to avoid migration issues on existing data
-
 
 def downgrade() -> None:
-    # Drop FK and column from videos
+    # Drop FK and index from videos (a coluna user_id pertence à migração 000)
     op.drop_constraint('fk_videos_user_id_users', 'videos', type_='foreignkey')
     op.drop_index(op.f('ix_videos_user_id'), table_name='videos')
-    op.drop_column('videos', 'user_id')
 
     # Drop revoked_tokens
     op.drop_index(op.f('ix_revoked_tokens_expires_at'), table_name='revoked_tokens')

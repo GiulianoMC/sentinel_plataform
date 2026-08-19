@@ -1,7 +1,7 @@
 # app/services/LLMService.py
 """
 Suporta dois providers via API compatível com OpenAI:
-  - LLM_PROVIDER=groq   (default) → Groq cloud, modelo llama-3.3-70b-versatile
+  - LLM_PROVIDER=groq   (default) → Groq cloud, modelo openai/gpt-oss-120b
   - LLM_PROVIDER=ollama           → Ollama local, modelo llama3.2 (sem limites de cota)
 
 Para Ollama: instalar em https://ollama.com e executar `ollama pull <modelo>`.
@@ -34,7 +34,7 @@ class LLMService:
             api_key = os.getenv("GROQ_API_KEY")
             if not api_key:
                 raise ValueError("A variável de ambiente GROQ_API_KEY não está configurada.")
-            self.model = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
+            self.model = os.getenv("LLM_MODEL", "openai/gpt-oss-120b")
             self.client = OpenAI(
                 base_url="https://api.groq.com/openai/v1",
                 api_key=api_key,

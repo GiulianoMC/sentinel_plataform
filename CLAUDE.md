@@ -24,11 +24,11 @@ Services and ports:
 - `worker` — Celery worker (consumes ingestion + AI tasks).
 - `beat` — Celery beat scheduler (triggers the collector).
 
-Required env vars (set in `.env`, passed through `docker-compose.yml`): `YOUTUBE_API_KEY`, `GROQ_API_KEY`. Optional: `LLM_MODEL` (default `llama-3.3-70b-versatile`). `DATABASE_URL`, `CHROMA_HOST`, `CHROMA_PORT` are set by compose.
+Required env vars (set in `.env`, passed through `docker-compose.yml`): `YOUTUBE_API_KEY`, `GROQ_API_KEY`. Optional: `LLM_MODEL` (default `openai/gpt-oss-120b`). `DATABASE_URL`, `CHROMA_HOST`, `CHROMA_PORT` are set by compose.
 
 Celery is configured in [app/celery/celery_app.py](app/celery/celery_app.py): broker/backend point to RabbitMQ, and the beat schedule registers `coletar_comentarios_youtube` at a 60-second interval.
 
-Migrations are versioned via **Alembic** (apply with `docker-compose run --rm api alembic upgrade head`; base revision `000` in [alembic/versions](alembic/versions)). At startup, `Base.metadata.create_all` still runs in the FastAPI `lifespan` ([app/main.py](app/main.py)) for brand-new databases; for pre-existing databases, the lifespan detects a missing `videos.user_id` column and aborts with an explicit message instructing to run `alembic upgrade head` (create_all does not ALTER existing tables). There is **no linter wired up**, but there **is** a pytest suite in `tests/` (run with `pytest` — SQLite by default, or set `TEST_DATABASE_URL` for PostgreSQL).
+Migrations are versioned via **Alembic** (base revision `000` in [alembic/versions](alembic/versions)). At startup, the FastAPI `lifespan` ([app/main.py](app/main.py)) runs `alembic upgrade head` automatically, so `docker-compose up --build` on a brand-new database works with no manual step (Alembic creates the whole schema). For legacy databases that were created by `create_all` (no `alembic_version` table), the lifespan stamps `head` as the baseline before upgrading, since `create_all` produced a schema equivalent to the current migrations. There is **no linter wired up**, but there **is** a pytest suite in `tests/` (run with `pytest` — SQLite by default, or set `TEST_DATABASE_URL` for PostgreSQL). Manual migration commands (`docker-compose run --rm api alembic upgrade head`) still work as a fallback; the `alembic.ini` and `alembic/` directory are copied into the API image by the Dockerfile.
 
 ## Architecture
 
