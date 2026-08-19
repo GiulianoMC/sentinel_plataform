@@ -59,3 +59,13 @@ class SentimentDistributionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+__all__ = [
+    "VideoSummaryResponse",
+    "IntentData",
+    "IntentionsResponse",
+    "ProductData",
+    "TopProductsResponse",
+    "SentimentDistributionResponse",
+]

@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.models.VideoModel import Video
 import re
 from typing import Optional
@@ -48,7 +49,7 @@ def _fetch_titulo_video(video_id: str) -> Optional[str]:
         return None
     return None
 
-def register_video_use_case(db: Session, video_url: str, titulo: Optional[str] = None):
+def register_video_use_case(db: Session, video_url: str, titulo: Optional[str] = None, user_id: int = None):
     """
     Use case para registar um novo vídeo no banco de dados
     a partir de um URL.
@@ -75,19 +76,25 @@ def register_video_use_case(db: Session, video_url: str, titulo: Optional[str] =
             
     novo_video = Video(
         youtube_id=youtube_id,
-        titulo=titulo_final
+        titulo=titulo_final,
+        user_id=user_id
     )
     
     db.add(novo_video)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Corrida: outro utilizador registou o mesmo youtube_id entre o check e o commit
+        db.rollback()
+        raise ValueError(f"O Video ID '{youtube_id}' já está registado.")
     db.refresh(novo_video)
 
     print(f"--- [API/Use Case] Novo vídeo registado: {youtube_id} (Título: {titulo_final}) ---")
 
-    # Dispara coleta imediatamente em vez de esperar o próximo ciclo do Beat (60s)
+    # Dispara coleta imediatamente para este video específico
     try:
-        from app.celery.collector_tasks import coletar_comentarios_youtube
-        coletar_comentarios_youtube.delay()
+        from app.celery.collector_tasks import coletar_comentarios_video_especifico
+        coletar_comentarios_video_especifico.delay(youtube_id, user_id)
         print(f"--- [API/Use Case] Coleta imediata disparada para {youtube_id} ---")
     except Exception as e:
         print(f"--- [API/Use Case] Aviso: não foi possível disparar coleta imediata: {e} ---")

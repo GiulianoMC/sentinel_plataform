@@ -10,8 +10,9 @@ def delete_video_use_case(
     db: Session,
     youtube_id: str,
     search_service: SemanticSearchService,
+    user_id: int
 ) -> Optional[dict]:
-    video = db.query(Video).filter(Video.youtube_id == youtube_id).first()
+    video = db.query(Video).filter(Video.youtube_id == youtube_id, Video.user_id == user_id).first()
     if not video:
         return None
 

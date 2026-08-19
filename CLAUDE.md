@@ -28,7 +28,7 @@ Required env vars (set in `.env`, passed through `docker-compose.yml`): `YOUTUBE
 
 Celery is configured in [app/celery/celery_app.py](app/celery/celery_app.py): broker/backend point to RabbitMQ, and the beat schedule registers `coletar_comentarios_youtube` at a 60-second interval.
 
-There is **no test suite, linter, or migration runner wired up**. Although `alembic` is in requirements, tables are created at runtime via `VideoModel.Base.metadata.create_all` in the FastAPI `lifespan` ([app/main.py](app/main.py)) — schema changes to models take effect on container restart only for *new* tables/columns (no automatic ALTER).
+Migrations are versioned via **Alembic** (apply with `docker-compose run --rm api alembic upgrade head`; base revision `000` in [alembic/versions](alembic/versions)). At startup, `Base.metadata.create_all` still runs in the FastAPI `lifespan` ([app/main.py](app/main.py)) for brand-new databases; for pre-existing databases, the lifespan detects a missing `videos.user_id` column and aborts with an explicit message instructing to run `alembic upgrade head` (create_all does not ALTER existing tables). There is **no linter wired up**, but there **is** a pytest suite in `tests/` (run with `pytest` — SQLite by default, or set `TEST_DATABASE_URL` for PostgreSQL).
 
 ## Architecture
 
@@ -39,12 +39,13 @@ The system has two entry paths that both funnel into the same async pipeline:
 
 ### The processing pipeline (the core flow)
 
-`processar_novo_comentario` ([app/celery/tasks.py](app/celery/tasks.py)) is the heart of the system and runs a deliberate 3-step ordering with compensation:
-1. Persist the `Comment` to **PostgreSQL first** (source of truth).
-2. Generate the embedding and index into **ChromaDB** (`comentarios_produtos` collection, metadata `{"video_id": ...}`).
-3. Fan out a separate `process_comments_with_ai` task (Groq Llama).
+`processar_novo_comentario` ([app/celery/tasks.py](app/celery/tasks.py)) is the heart of the system and runs a deliberate ordering with compensation:
+1. Verify the `Video` exists (aborts otherwise).
+2. Persist the `Comment` to **PostgreSQL first** (source of truth) — idempotent: if the id already exists (retry/duplicate), it skips the INSERT.
+3. Generate the embedding and index into **ChromaDB** (`comentarios_produtos` collection, metadata `{"video_id": ...}`) via `upsert` (idempotent).
+4. Fan out a separate `process_comments_with_ai` task (Groq Llama).
 
-If ChromaDB succeeds but Postgres failed, it compensates by deleting the Chroma entry. The AI task ([app/celery/ai_tasks.py](app/celery/ai_tasks.py)) is decoupled so a slow/failing LLM never blocks ingestion; it re-fetches the comment by id (with retry to handle the race where AI runs before the Postgres commit is visible) and writes back `sentiment`, `intent`, `product_mentioned`. The task carries `rate_limit="10/m"` to stay under the Groq free-tier RPM budget — shared across the worker's prefork processes.
+If ChromaDB succeeds but Postgres failed, it compensates by deleting the Chroma entry. The AI task ([app/celery/ai_tasks.py](app/celery/ai_tasks.py)) is decoupled so a slow/failing LLM never blocks ingestion; it re-fetches the comment by id (with retry to handle the race where AI runs before the Postgres commit is visible) and writes back `sentiment`, `intent`, `product_mentioned`. The task has no fixed `rate_limit`; instead it parses Groq's `RateLimitError` message, waits `retry_after` (via `LLMRateLimitError`) and retries up to 20 times with backoff.
 
 ### Layering convention
 

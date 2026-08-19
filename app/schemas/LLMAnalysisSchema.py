@@ -14,3 +14,5 @@ class CommentAnalysisResponse(BaseModel):
         None, 
         description="Nome do produto mencionado no comentário. Se nenhum for mencionado, retorne null."
     )
+
+__all__ = ["CommentAnalysisResponse"]

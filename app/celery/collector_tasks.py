@@ -9,6 +9,7 @@ from .tasks import processar_novo_comentario
 
 from app.database import SessionLocal
 from app.models.VideoModel import Video
+from app.models.UserModel import User
 
 # Importacoes da API do Google
 from googleapiclient.discovery import build
@@ -119,52 +120,119 @@ def fetch_novos_comentarios_youtube(video_id: str, published_after: Optional[dat
 def coletar_comentarios_youtube():
     """
     Esta e a tarefa agendada pelo Celery Beat.
-    Le o PostgreSQL e chama a API real.
+    Le o PostgreSQL e chama a API real para cada usuario ativo.
     """
-    print(f"--- [COLETOR] Tarefa agendada iniciada: A buscar videos no PostgreSQL... ---")
+    print(f"--- [COLETOR] Tarefa agendada iniciada: A buscar utilizadores ativos... ---")
 
     db = SessionLocal()
     try:
-        videos_para_verificar = db.query(Video).all()
+        users = db.query(User).filter(User.is_active == True).all()
 
-        if not videos_para_verificar:
-            print(f"--- [COLETOR] Nenhum video registado no banco de dados. A saltar... ---")
-            return "Nenhum video registado."
-
-        print(f"--- [COLETOR] Encontrados {len(videos_para_verificar)} videos para verificar... ---")
+        if not users:
+            print(f"--- [COLETOR] Nenhum utilizador ativo encontrado. A saltar... ---")
+            return "Nenhum utilizador ativo."
 
         total_comentarios_enviados = 0
 
-        for video in videos_para_verificar:
-            print(f"--- [COLETOR] A verificar o video: {video.youtube_id} (Titulo: {video.titulo}) ---")
+        for user in users:
+            print(f"--- [COLETOR] Processando utilizador: {user.email} (ID: {user.id}) ---")
+            
+            videos_para_verificar = db.query(Video).filter(Video.user_id == user.id).all()
 
-            ultimo_visto = video.ultimo_comentario_verificado_em
-
-            comentarios, newest_timestamp_str = fetch_novos_comentarios_youtube(video.youtube_id, ultimo_visto)
-
-            if not comentarios:
-                print(f"--- [COLETOR] Nenhum comentario novo para o video {video.youtube_id}. ---")
+            if not videos_para_verificar:
+                print(f"--- [COLETOR] Nenhum video registado para o utilizador {user.email}. ---")
                 continue
 
-            print(f"--- [COLETOR] Encontrados {len(comentarios)} novos comentarios para {video.youtube_id}. A envia-los para a fila... ---")
+            print(f"--- [COLETOR] Encontrados {len(videos_para_verificar)} videos para o utilizador {user.email} ---")
 
-            for comentario in comentarios:
-                comment_id = str(uuid.uuid4())
-                # Agora passamos todos os metadados necessarios
-                processar_novo_comentario.delay(
-                    comment_id=comment_id,
-                    comment_text=comentario['text'],
-                    video_id=video.youtube_id,
-                    author=comentario['author'],
-                    published_at=comentario['published_at']
-                )
-                total_comentarios_enviados += 1
+            for video in videos_para_verificar:
+                print(f"--- [COLETOR] User {user.email} - A verificar o video: {video.youtube_id} (Titulo: {video.titulo}) ---")
 
-            if newest_timestamp_str:
-                video.ultimo_comentario_verificado_em = parser.isoparse(newest_timestamp_str)
-                db.commit()
+                ultimo_visto = video.ultimo_comentario_verificado_em
+
+                try:
+                    comentarios, newest_timestamp_str = fetch_novos_comentarios_youtube(video.youtube_id, ultimo_visto)
+                except Exception as e:
+                    print(f"[COLETOR] ERRO ao buscar comentarios para video {video.youtube_id}: {e}")
+                    continue
+
+                if not comentarios:
+                    print(f"--- [COLETOR] Nenhum comentario novo para o video {video.youtube_id}. ---")
+                    continue
+
+                print(f"--- [COLETOR] Encontrados {len(comentarios)} novos comentarios para {video.youtube_id}. A envia-los para a fila... ---")
+
+                for comentario in comentarios:
+                    comment_id = str(uuid.uuid4())
+                    # Agora passamos todos os metadados necessarios
+                    processar_novo_comentario.delay(
+                        comment_id=comment_id,
+                        comment_text=comentario['text'],
+                        video_id=video.youtube_id,
+                        author=comentario['author'],
+                        published_at=comentario['published_at']
+                    )
+                    total_comentarios_enviados += 1
+
+                if newest_timestamp_str:
+                    video.ultimo_comentario_verificado_em = parser.isoparse(newest_timestamp_str)
+
+            # Commit once per user after all their videos processed
+            db.commit()
 
         return f"Foram enviadas {total_comentarios_enviados} tarefas para a fila."
+
+    except Exception as e:
+        print(f"[COLETOR] ERRO ao coletar comentarios: {e}")
+        db.rollback()
+        return "Falha na coleta."
+    finally:
+        db.close()
+
+
+@celery.task(name='app.celery.collector_tasks.coletar_comentarios_video_especifico')
+def coletar_comentarios_video_especifico(video_id: str, user_id: int):
+    """
+    Coleta comentarios para um video especifico (usado apos registro de novo video).
+    """
+    print(f"--- [COLETOR] Coleta imediata para video especifico: {video_id} ---")
+
+    db = SessionLocal()
+    try:
+        video = db.query(Video).filter(Video.youtube_id == video_id, Video.user_id == user_id).first()
+        if not video:
+            print(f"[COLETOR] Video {video_id} nao encontrado para user {user_id}")
+            return "Video nao encontrado"
+
+        ultimo_visto = video.ultimo_comentario_verificado_em
+
+        try:
+            comentarios, newest_timestamp_str = fetch_novos_comentarios_youtube(video.youtube_id, ultimo_visto)
+        except Exception as e:
+            print(f"[COLETOR] ERRO ao buscar comentarios para video {video.youtube_id}: {e}")
+            return "Falha na coleta"
+
+        if not comentarios:
+            print(f"--- [COLETOR] Nenhum comentario novo para o video {video.youtube_id}. ---")
+            return "Nenhum comentario novo"
+
+        print(f"--- [COLETOR] Encontrados {len(comentarios)} novos comentarios para {video.youtube_id}. A envia-los para a fila... ---")
+
+        for comentario in comentarios:
+            comment_id = str(uuid.uuid4())
+            processar_novo_comentario.delay(
+                comment_id=comment_id,
+                comment_text=comentario['text'],
+                video_id=video.youtube_id,
+                author=comentario['author'],
+                published_at=comentario['published_at']
+            )
+
+        if newest_timestamp_str:
+            video.ultimo_comentario_verificado_em = parser.isoparse(newest_timestamp_str)
+            db.commit()
+
+        return f"Enviadas {len(comentarios)} tarefas para a fila."
 
     except Exception as e:
         print(f"[COLETOR] ERRO ao coletar comentarios: {e}")

@@ -6,7 +6,7 @@ import time
 import urllib.request
 import urllib.error
 import os
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -99,12 +99,13 @@ class SemanticSearchService:
 
     def search(self, 
                query: str, 
-               video_id_filter: Optional[str] = None, 
+               video_id_filter: Optional[Union[str, List[str]]] = None, 
                num_results: int = 10,
                threshold: float = 0.6
                ) -> List[Dict[str, Any]]:
         """
         Busca semanticamente na coleção, com filtro opcional e threshold de relevância.
+        'video_id_filter' pode ser um único youtube_id (str) ou uma lista de ids.
         """
         collection_name = "comentarios_produtos"
         collection = self.get_collection(collection_name)
@@ -115,7 +116,14 @@ class SemanticSearchService:
             "include": ["documents", "distances", "metadatas"]
         }
         
-        if video_id_filter:
+        if isinstance(video_id_filter, list):
+            if len(video_id_filter) == 1:
+                query_params["where"] = {"video_id": video_id_filter[0]}
+                logger.info(f"--- Buscando: '{query}' (FILTRADO para youtube_id: {video_id_filter[0]}) ---")
+            elif video_id_filter:
+                query_params["where"] = {"video_id": {"$in": video_id_filter}}
+                logger.info(f"--- Buscando: '{query}' (FILTRADO para {len(video_id_filter)} videos) ---")
+        elif video_id_filter:
             query_params["where"] = {"video_id": video_id_filter}
             logger.info(f"--- Buscando: '{query}' (FILTRADO para youtube_id: {video_id_filter}) ---")
         else:

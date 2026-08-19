@@ -13,3 +13,11 @@ python-dateutil
 google-generativeai
 groq
 openai
+passlib[bcrypt]
+bcrypt==4.0.1
+python-jose[cryptography]
+slowapi
+pytest
+pytest-asyncio
+httpx
+pytest-cov

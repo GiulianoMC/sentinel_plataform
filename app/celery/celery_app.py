@@ -7,7 +7,7 @@ celery = Celery(
     'app',
     broker=BROKER_URL,
     backend='rpc://',
-    include=['app.celery.tasks', 'app.celery.collector_tasks', 'app.celery.ai_tasks']
+    include=['app.celery.tasks', 'app.celery.collector_tasks', 'app.celery.ai_tasks', 'app.celery.cleanup_tasks']
 )
 
 # Duas filas: ingestion (embedding + postgres) e ai (chamadas Groq)
@@ -21,11 +21,16 @@ celery.conf.task_routes = {
     'app.celery.tasks.processar_novo_comentario':              {'queue': 'ingestion'},
     'app.celery.collector_tasks.coletar_comentarios_youtube':  {'queue': 'ingestion'},
     'app.celery.ai_tasks.process_comments_with_ai':            {'queue': 'ai'},
+    'app.celery.cleanup_tasks.cleanup_revoked_tokens':         {'queue': 'ingestion'},
 }
 
 celery.conf.beat_schedule = {
-    'coletar-comentarios-a-cada-5-minutos': {
+    'coletar-comentarios-a-cada-1-minuto': {
         'task': 'app.celery.collector_tasks.coletar_comentarios_youtube',
         'schedule': 60.0,
+    },
+    'limpar-tokens-revogados-diario': {
+        'task': 'app.celery.cleanup_tasks.cleanup_revoked_tokens',
+        'schedule': 86400.0,  # 24 hours
     },
 }

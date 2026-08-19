@@ -13,8 +13,10 @@ class Video(Base):
     published_at = Column(DateTime, nullable=True)
     ultimo_comentario_verificado_em = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
     comments = relationship("Comment", back_populates="video")
+    owner = relationship("User", back_populates="videos")
 
 class Comment(Base):
     __tablename__ = "comments"
