@@ -26,13 +26,32 @@ mock_search_service = MagicMock()
 mock_search_service.search.return_value = []
 mock_search_service.get_collection.return_value = MagicMock()
 
+mock_llm_service = MagicMock()
+mock_llm_service.answer.return_value = "Resposta gerada pela IA [1]"
+
 # Mock modules that have heavy dependencies
 sys.modules['app.services.SemanticSearchService'] = MagicMock(
     SemanticSearchService=lambda: mock_search_service
 )
+class _FakeLLMRateLimitError(Exception):
+    def __init__(self, message="rate limit", retry_after_seconds=300):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+class _FakeLLMTimeoutError(Exception):
+    pass
+
+
+class _FakeLLMConnectionError(Exception):
+    pass
+
+
 sys.modules['app.services.LLMService'] = MagicMock(
     LLMService=MagicMock(),
-    LLMRateLimitError=Exception
+    LLMRateLimitError=_FakeLLMRateLimitError,
+    LLMTimeoutError=_FakeLLMTimeoutError,
+    LLMConnectionError=_FakeLLMConnectionError
 )
 sys.modules['app.celery.ai_tasks'] = MagicMock()
 sys.modules['app.celery.tasks'] = MagicMock()
@@ -42,6 +61,7 @@ from app.database import Base, get_db
 from app.main import app
 from app.models.UserModel import User, RevokedToken
 from app.models.VideoModel import Video, Comment
+from app.models.VideoInsightModel import VideoInsight
 from app.core.security import hash_password, create_token_pair
 
 
@@ -88,6 +108,16 @@ def client(db_session, request):
     
     def override_get_search_service():
         return mock_search_service
+
+    def override_get_llm_service():
+        return mock_llm_service
+
+    # Estado dos mocks não deve vazar entre testes
+    mock_search_service.reset_mock()
+    mock_search_service.search.return_value = []
+    mock_llm_service.reset_mock()
+    mock_llm_service.answer.return_value = "Resposta gerada pela IA [1]"
+    mock_llm_service.answer.side_effect = None
     
     # Reset the original limiter's storage (used by route decorators)
     from app.core.rate_limiter import limiter as original_limiter
@@ -97,8 +127,9 @@ def client(db_session, request):
         original_limiter._storage.reset()
     
     app.dependency_overrides[get_db] = override_get_db
-    from app.dependencies import get_search_service
+    from app.dependencies import get_search_service, get_llm_service
     app.dependency_overrides[get_search_service] = override_get_search_service
+    app.dependency_overrides[get_llm_service] = override_get_llm_service
     yield TestClient(app)
     app.dependency_overrides.clear()
 

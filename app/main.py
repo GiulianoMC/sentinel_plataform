@@ -12,7 +12,7 @@ from app.database import engine
 
 from app.routers import (
     SemanticSearchRouter, IngestionRouter, VideoRouter, 
-    AnalyticsRouter, ReprocessRouter, auth_router, AdminRouter
+    AnalyticsRouter, ReprocessRouter, auth_router, AdminRouter, InsightsRouter
 )
 
 def _ensure_migrations() -> None:
@@ -49,6 +49,15 @@ async def lifespan(app: FastAPI):
     service.setup_collection("comentarios_produtos", documents=[]) 
     
     app_state['search_service'] = service
+
+    # LLM partilhado pelo processo da API (RAG do módulo de Insights).
+    # Falhar aqui não deve impedir a API de subir: só o /insights/ask depende dele.
+    try:
+        from app.services.LLMService import LLMService
+        app_state['llm_service'] = LLMService()
+    except Exception as e:
+        print(f"--- [API] LLMService indisponível ({e}); /insights/ask responderá 503. ---")
+
     yield 
     
     app_state.clear()
@@ -59,10 +68,22 @@ app = FastAPI(
 )
 
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, lambda request, exc: JSONResponse(
-    status_code=429,
-    content={"detail": "Rate limit exceeded. Tente novamente mais tarde."}
-))
+
+
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """429 com Retry-After, para o front poder mostrar quanto falta para liberar."""
+    try:
+        retry_after = int(exc.limit.limit.get_expiry())
+    except Exception:
+        retry_after = 60
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Tente novamente mais tarde."},
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 # CORS para permitir que o front-end (browser) consuma a API.
 # Defina CORS_ORIGINS no .env (lista separada por vírgula) em produção; "*" no desenvolvimento.
@@ -77,6 +98,10 @@ app.add_middleware(
     allow_credentials=not allow_all,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Sem expose_headers o JS do browser não enxerga headers de resposta fora da
+    # lista segura do CORS. O front lê Retry-After para o countdown de rate limit
+    # (429 do slowapi e 503 do LLM saturado).
+    expose_headers=["Retry-After"],
 )
 
 app.include_router(auth_router)
@@ -86,3 +111,4 @@ app.include_router(VideoRouter.router)
 app.include_router(AnalyticsRouter.router)
 app.include_router(ReprocessRouter.router)
 app.include_router(AdminRouter.router)
+app.include_router(InsightsRouter.router)

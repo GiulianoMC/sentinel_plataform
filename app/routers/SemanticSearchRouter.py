@@ -22,6 +22,7 @@ class SearchQuery(BaseModel):
     threshold: float = 0.6
 
 class SearchResult(BaseModel):
+    id: Optional[str] = None
     documento: str
     distancia: float
     metadados: Optional[Dict[str, Any]]

@@ -10,7 +10,7 @@ from alembic import context
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from app.database import Base
-from app.models import Video, Comment, User, RevokedToken
+from app.models import Video, Comment, User, RevokedToken, VideoInsight
 
 config = context.config
 

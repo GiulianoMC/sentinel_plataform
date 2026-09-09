@@ -9,7 +9,8 @@ Para Ollama: instalar em https://ollama.com e executar `ollama pull <modelo>`.
 
 import os
 import json
-from openai import OpenAI, RateLimitError, APIConnectionError
+import re
+from openai import OpenAI, RateLimitError, APIConnectionError, APITimeoutError
 
 from app.schemas.LLMAnalysisSchema import CommentAnalysisResponse
 
@@ -19,6 +20,13 @@ class LLMRateLimitError(Exception):
     def __init__(self, message: str, retry_after_seconds: int = 300):
         super().__init__(message)
         self.retry_after_seconds = retry_after_seconds
+
+
+# Aliases públicos para que routers e use cases mapeiem falhas de LLM sem
+# importar o SDK da OpenAI directamente.
+# Nota: APITimeoutError é subclasse de APIConnectionError — capture o timeout primeiro.
+LLMTimeoutError = APITimeoutError
+LLMConnectionError = APIConnectionError
 
 
 class LLMService:
@@ -40,6 +48,47 @@ class LLMService:
                 api_key=api_key,
             )
             print(f"[LLMService] Provider: Groq — modelo: {self.model}")
+
+        # Modelo dedicado ao RAG do módulo de Insights. Permite usar um modelo
+        # mais barato/rápido nas respostas do /ask sem mexer na análise por comentário.
+        self.insights_model = os.getenv("LLM_INSIGHTS_MODEL") or self.model
+
+    @staticmethod
+    def _parse_retry_after(message: str, default: int = 300) -> int:
+        """Extrai o tempo de espera da mensagem de rate limit do provider.
+
+        Formato típico do Groq: "... please try again in 2m13.5s ...".
+        Devolve `default` quando a mensagem não segue esse padrão.
+        """
+        match = re.search(r'try again in (?:(\d+)m)?(\d+(?:\.\d+)?)s', message)
+        if not match:
+            return default
+        minutes = int(match.group(1) or 0)
+        seconds = float(match.group(2))
+        return int(minutes * 60 + seconds) + 5
+
+    def answer(self, system_prompt: str, user_prompt: str,
+               timeout: float = 30.0, temperature: float = 0.1) -> str:
+        """Resposta em texto livre para o RAG do módulo de Insights.
+
+        Ao contrário de `analyze_comment`, não devolve um default seguro em caso
+        de erro: o chamador (use case/router) precisa distinguir rate limit,
+        timeout e indisponibilidade para mapear ao status HTTP correto.
+        """
+        try:
+            response = self.client.chat.completions.create(
+                model=self.insights_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=temperature,
+                timeout=timeout,
+            )
+            return response.choices[0].message.content or ""
+        except RateLimitError as e:
+            raise LLMRateLimitError(str(e), retry_after_seconds=self._parse_retry_after(str(e)))
+        # APITimeoutError e APIConnectionError propagam para o chamador tratar
 
     def analyze_comment(self, comment_text: str) -> CommentAnalysisResponse:
         system_instruction = (
@@ -76,15 +125,7 @@ class LLMService:
 
         except RateLimitError as e:
             # Extrai tempo de espera da mensagem do Groq e re-lança como excepção própria
-            import re
-            match = re.search(r'try again in (?:(\d+)m)?(\d+(?:\.\d+)?)s', str(e))
-            if match:
-                minutes = int(match.group(1) or 0)
-                seconds = float(match.group(2))
-                wait = int(minutes * 60 + seconds) + 5
-            else:
-                wait = 300
-            raise LLMRateLimitError(str(e), retry_after_seconds=wait)
+            raise LLMRateLimitError(str(e), retry_after_seconds=self._parse_retry_after(str(e)))
 
         except Exception as e:
             print(f"[LLMService] Erro ao processar comentário: {e}")

@@ -1,6 +1,7 @@
 from typing import Optional
 from sqlalchemy.orm import Session
 from app.models.VideoModel import Video, Comment
+from app.models.VideoInsightModel import VideoInsight
 from app.services.SemanticSearchService import SemanticSearchService
 
 COLLECTION_NAME = "comentarios_produtos"
@@ -25,7 +26,10 @@ def delete_video_use_case(
     except Exception as e:
         print(f"[DELETE] Aviso: erro ao remover embeddings do ChromaDB para {youtube_id}: {e}")
 
-    # Remove comentários e vídeo do PostgreSQL
+    # Remove comentários, cards de insights e o vídeo do PostgreSQL.
+    # Os cards são apagados explicitamente: o ondelete=CASCADE cobre o Postgres,
+    # mas os testes correm em SQLite, onde a FK não é aplicada da mesma forma.
+    db.query(VideoInsight).filter(VideoInsight.youtube_id == youtube_id).delete()
     db.query(Comment).filter(Comment.youtube_id == youtube_id).delete()
     db.delete(video)
     db.commit()

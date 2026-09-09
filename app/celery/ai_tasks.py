@@ -20,6 +20,9 @@ def process_comments_with_ai(self, comment_id: str, comment_text: str):
         print(f"[AI WORKER] Comentario {comment_id} nao encontrado — descartando task.")
         return f"Comentario {comment_id} nao existe, task descartada."
 
+    # Guardado antes do commit: o commit expira os atributos e forcaria novo SELECT.
+    video_id = comment.youtube_id
+
     try:
         print(f"[AI WORKER] A enviar texto para analise LLM: {comment_text[:50]}...")
         analysis = llm_service.analyze_comment(comment_text)
@@ -29,6 +32,14 @@ def process_comments_with_ai(self, comment_id: str, comment_text: str):
         comment.intent = analysis.intent
         comment.product_mentioned = analysis.product_mentioned
         db.commit()
+
+        # Write-back dos metadados no ChromaDB (fila ingestion, onde vive a collection).
+        # Disparo por nome: tasks.py importa este modulo, o inverso criaria um ciclo.
+        celery.send_task(
+            "app.celery.tasks.sync_chroma_metadata",
+            args=[comment_id, video_id, analysis.sentiment,
+                  analysis.intent, analysis.product_mentioned],
+        )
 
         print(f"--- [AI WORKER] Analise guardada com sucesso para {comment_id}! ---")
         return f"IA processada para {comment_id}"

@@ -5,6 +5,7 @@ from app.routers.IngestionRouter import router as ingestion_router
 from app.routers.SemanticSearchRouter import router as semantic_search_router
 from app.routers.ReprocessRouter import router as reprocess_router
 from app.routers.AdminRouter import router as admin_router
+from app.routers.InsightsRouter import router as insights_router
 
 __all__ = [
     "auth_router",
@@ -14,4 +15,5 @@ __all__ = [
     "semantic_search_router",
     "reprocess_router",
     "admin_router",
+    "insights_router",
 ]

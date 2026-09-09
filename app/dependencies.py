@@ -16,6 +16,21 @@ def get_search_service():
         raise RuntimeError("O serviço de busca não foi inicializado.")
     return service
 
+def get_llm_service():
+    """Serviço de LLM partilhado pelo processo da API (usado pelo /insights/ask).
+
+    A API sobe mesmo sem LLM (ex: GROQ_API_KEY ausente); nesse caso só os
+    endpoints que dependem dele falham, com 503 em vez de 500.
+    """
+    service = app_state.get('llm_service')
+    if not service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Serviço de IA indisponível.",
+        )
+    return service
+
+
 security = HTTPBearer(auto_error=False)
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),

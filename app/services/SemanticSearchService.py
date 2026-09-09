@@ -84,7 +84,7 @@ class SemanticSearchService:
             self.collection_cache[collection_name] = collection
         return self.collection_cache[collection_name]
 
-    def setup_collection(self, collection_name: str, documents: list[str]):
+    def setup_collection(self, collection_name: str, documents: List[str]):
         """Cria uma coleção e adiciona documentos iniciais, se necessário."""
         collection = self.get_collection(collection_name)
         if collection.count() == 0 and documents:
@@ -97,53 +97,70 @@ class SemanticSearchService:
         else:
             logger.info(f"--- Coleção '{collection_name}' já contém {collection.count()} documentos. ---")
 
-    def search(self, 
-               query: str, 
-               video_id_filter: Optional[Union[str, List[str]]] = None, 
+    def search(self,
+               query: str,
+               video_id_filter: Optional[Union[str, List[str]]] = None,
                num_results: int = 10,
-               threshold: float = 0.6
+               threshold: float = 0.6,
+               extra_where: Optional[Dict[str, Any]] = None
                ) -> List[Dict[str, Any]]:
         """
         Busca semanticamente na coleção, com filtro opcional e threshold de relevância.
         'video_id_filter' pode ser um único youtube_id (str) ou uma lista de ids.
+        'extra_where' é uma cláusula adicional de metadados (ex: sentimento/intenção),
+        combinada com o filtro de vídeo através de $and.
+
+        Cada resultado inclui o 'id' do documento, que é o mesmo Comment.id do
+        PostgreSQL — é isso que permite o join do módulo de Insights.
         """
         collection_name = "comentarios_produtos"
         collection = self.get_collection(collection_name)
-        
-        query_params = {
-            "query_texts": [query],
-            "n_results": num_results,
-            "include": ["documents", "distances", "metadatas"]
-        }
-        
+
+        clauses: List[Dict[str, Any]] = []
         if isinstance(video_id_filter, list):
             if len(video_id_filter) == 1:
-                query_params["where"] = {"video_id": video_id_filter[0]}
+                clauses.append({"video_id": video_id_filter[0]})
                 logger.info(f"--- Buscando: '{query}' (FILTRADO para youtube_id: {video_id_filter[0]}) ---")
             elif video_id_filter:
-                query_params["where"] = {"video_id": {"$in": video_id_filter}}
+                clauses.append({"video_id": {"$in": video_id_filter}})
                 logger.info(f"--- Buscando: '{query}' (FILTRADO para {len(video_id_filter)} videos) ---")
         elif video_id_filter:
-            query_params["where"] = {"video_id": video_id_filter}
+            clauses.append({"video_id": video_id_filter})
             logger.info(f"--- Buscando: '{query}' (FILTRADO para youtube_id: {video_id_filter}) ---")
         else:
             logger.info(f"--- Buscando: '{query}' (em TODOS os vídeos, Top {num_results} candidatos) ---")
 
+        if extra_where:
+            clauses.append(extra_where)
+
+        query_params = {
+            "query_texts": [query],
+            "n_results": num_results,
+            # 'ids' vêm sempre na resposta do Chroma e não podem ser pedidos no include
+            "include": ["documents", "distances", "metadatas"]
+        }
+
+        if len(clauses) == 1:
+            query_params["where"] = clauses[0]
+        elif clauses:
+            query_params["where"] = {"$and": clauses}
+
         results = collection.query(**query_params)
-        
-        final_results = []
-        if not results['documents']:
+
+        if not results.get('ids') or not results['ids'][0]:
             return []
 
-        for doc, dist, meta in zip(results['documents'][0], results['distances'][0], results['metadatas'][0]):
-            
-            if dist <= threshold: 
+        final_results = []
+        for cid, doc, dist, meta in zip(results['ids'][0], results['documents'][0],
+                                        results['distances'][0], results['metadatas'][0]):
+            if dist <= threshold:
                 final_results.append({
+                    "id": cid,
                     "documento": doc,
                     "distancia": dist,
                     "metadados": meta
                 })
-        
+
         logger.info(f"--- Encontrados {len(final_results)} resultados relevantes (limite: {threshold}) ---")
-        
+
         return final_results

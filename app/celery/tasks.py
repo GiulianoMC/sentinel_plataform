@@ -16,6 +16,42 @@ semantic_service = SemanticSearchService()
 collection = semantic_service.get_collection(COLLECTION_NAME)
 
 
+def build_chroma_metadata(video_id: str, sentiment=None, intent=None, product=None) -> dict:
+    """Monta os metadados de um comentario no ChromaDB.
+
+    Chroma 0.4.15 nao aceita None em metadados, por isso o sentinela "none".
+    O produto e normalizado (lower/trim) para bater com a normalizacao do
+    AnalyticsRepository.get_top_products.
+    """
+    metadata = {"video_id": video_id}
+    if sentiment is not None:
+        metadata["sentiment"] = int(sentiment)
+        metadata["intent"] = intent or "none"
+        metadata["product"] = (product or "").lower().strip() or "none"
+    return metadata
+
+
+@celery.task(bind=True, max_retries=5, default_retry_delay=60)
+def sync_chroma_metadata(self, comment_id: str, video_id: str, sentiment: int,
+                         intent: str, product: str = None):
+    """Write-back da analise de IA para os metadados do ChromaDB.
+
+    Nao recalcula embeddings: so atualiza os metadados, o que permite filtrar a
+    busca vetorial por sentimento/intencao/produto. Se o id ainda nao existir no
+    Chroma, o update e no-op — o backfill cobre esse caso.
+    """
+    try:
+        collection.update(
+            ids=[comment_id],
+            metadatas=[build_chroma_metadata(video_id, sentiment, intent, product)]
+        )
+        print(f"[WORKER] Metadados do comentario {comment_id} sincronizados no ChromaDB.")
+        return f"metadata sync ok {comment_id}"
+    except Exception as exc:
+        print(f"[WORKER] Falha no write-back de metadados para {comment_id}: {exc}")
+        raise self.retry(exc=exc)
+
+
 @celery.task(bind=True, max_retries=3, default_retry_delay=60)
 def processar_novo_comentario(self, comment_id: str, comment_text: str, video_id: str,
                                author: str = "Desconhecido", published_at: str = None):
@@ -74,11 +110,21 @@ def processar_novo_comentario(self, comment_id: str, comment_text: str, video_id
         print(f"[WORKER] A gerar embedding para {comment_id}...")
         embedding = semantic_service.model.encode([comment_text])
 
+        # collection.upsert substitui o dict inteiro de metadados; se a analise de IA
+        # ja tiver sido gravada, ela vai junto para nao ser perdida num retry.
+        analisado = db.query(Comment).filter(Comment.id == comment_id).first()
+        metadata = build_chroma_metadata(
+            video_id,
+            analisado.sentiment if analisado else None,
+            analisado.intent if analisado else None,
+            analisado.product_mentioned if analisado else None,
+        )
+
         collection.upsert(
             embeddings=embedding.tolist(),
             documents=[comment_text],
             ids=[comment_id],
-            metadatas=[{"video_id": video_id}]
+            metadatas=[metadata]
         )
         chroma_success = True
         print(f"[WORKER] Embedding do comentario {comment_id} salvo no ChromaDB.")
