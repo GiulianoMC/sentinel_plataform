@@ -64,3 +64,35 @@ def reprocess_chroma_metadata(
             raise HTTPException(status_code=404, detail=f"Vídeo '{youtube_id}' não encontrado ou não pertence ao usuário.")
 
     return backfill_chroma_metadata_use_case(db, youtube_id=youtube_id, user_id=current_user.id)
+
+
+@router.post("/video-channels")
+def reprocess_video_channels(
+    youtube_id: Optional[str] = Query(
+        None, description="Restringe a um vídeo específico. Omitido = todos os vídeos do usuário."
+    ),
+    force: bool = Query(
+        False, description="True: re-busca também vídeos que já têm canal (ex: canal renomeado)."
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Preenche channel_id/channel_title (e published_at) dos vídeos a partir da
+    YouTube API. Necessário para vídeos registados antes do filtro por canal
+    existir — até então a coluna channel_id ficava sempre NULL.
+    """
+    from app.use_cases.Video.backfill_video_channels import (
+        backfill_video_channels_use_case,
+        YouTubeApiUnavailable,
+    )
+
+    if youtube_id:
+        video = db.query(Video).filter(Video.youtube_id == youtube_id, Video.user_id == current_user.id).first()
+        if not video:
+            raise HTTPException(status_code=404, detail=f"Vídeo '{youtube_id}' não encontrado ou não pertence ao usuário.")
+
+    try:
+        return backfill_video_channels_use_case(db, user_id=current_user.id, force=force, youtube_id=youtube_id)
+    except YouTubeApiUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))

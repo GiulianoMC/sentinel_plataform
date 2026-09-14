@@ -9,7 +9,10 @@ class Video(Base):
     id = Column(Integer, primary_key=True, index=True)
     youtube_id = Column(String, unique=True, index=True, nullable=False)
     titulo = Column(String, nullable=False)
-    channel_id = Column(String, nullable=True)
+    # Preenchidos a partir do snippet da YouTube API no registo (ou pelo backfill
+    # POST /reprocess/video-channels para vídeos antigos). Base do filtro por canal.
+    channel_id = Column(String, nullable=True, index=True)
+    channel_title = Column(String, nullable=True)
     published_at = Column(DateTime, nullable=True)
     ultimo_comentario_verificado_em = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
