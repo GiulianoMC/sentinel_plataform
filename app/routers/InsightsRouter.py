@@ -15,6 +15,7 @@ from app.core.rate_limiter import limiter
 from app.database import get_db
 from app.dependencies import get_current_active_user, get_llm_service, get_search_service
 from app.models.UserModel import User
+from app.models.VideoModel import Video
 from app.repositories.InsightsRepository import InsightsRepository
 from app.schemas.InsightsSchema import (
     AskRequest,
@@ -27,7 +28,7 @@ from app.schemas.InsightsSchema import (
     SuggestedQuestionsResponse,
 )
 from app.services.LLMService import LLMConnectionError, LLMRateLimitError, LLMTimeoutError
-from app.use_cases.Insights.ask_insight import ask_insight_use_case
+from app.use_cases.Insights.ask_insight import AskScope, ask_insight_use_case
 from app.use_cases.Insights.hybrid_search import hybrid_search_use_case
 from app.use_cases.Insights.insight_cards import get_insight_cards_use_case
 from app.use_cases.Insights.suggested_questions import suggested_questions_use_case
@@ -43,6 +44,85 @@ def _require_owned_video(db: Session, youtube_id: str, user_id: int) -> None:
     """404 quando o vídeo não existe ou não é do usuário (sem distinguir os casos)."""
     if get_owned_video(db, youtube_id, user_id) is None:
         raise HTTPException(status_code=404, detail=f"Vídeo '{youtube_id}' não encontrado.")
+
+
+def _require_owned_channel(db: Session, channel_id: str, user_id: int) -> List[str]:
+    """Ids dos vídeos do usuário nesse canal; 404 se não houver nenhum.
+
+    O escopo é sempre (canal, usuário): o mesmo canal pode ter vídeos registados
+    por outros usuários, e esses nunca entram no contexto.
+    """
+    rows = db.query(Video.youtube_id).filter(
+        Video.channel_id == channel_id, Video.user_id == user_id
+    ).all()
+    ids = [r[0] for r in rows]
+    if not ids:
+        raise HTTPException(status_code=404, detail=f"Canal '{channel_id}' não encontrado entre os seus vídeos.")
+    return ids
+
+
+def _run_ask(db, search_service, llm_service, scope, body: AskRequest) -> AskResponse:
+    """Mapeia as falhas do LLM para HTTP; partilhado pelos /ask de vídeo e de canal."""
+    try:
+        return ask_insight_use_case(db, search_service, llm_service, scope, body)
+    except LLMRateLimitError as e:
+        raise HTTPException(
+            status_code=503,
+            detail="Serviço de IA temporariamente saturado.",
+            headers={"Retry-After": str(e.retry_after_seconds)},
+        )
+    except LLMTimeoutError:
+        raise HTTPException(status_code=504, detail="A IA demorou a responder. Tente uma pergunta mais curta.")
+    except LLMConnectionError:
+        raise HTTPException(status_code=503, detail="Serviço de IA indisponível.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Escopo canal: todos os vídeos do usuário num canal
+# ---------------------------------------------------------------------------
+
+@router.post("/channels/{channel_id}/ask", response_model=AskResponse)
+@limiter.limit("10/minute")
+def ask_channel_insight(
+    request: Request,
+    response: Response,
+    channel_id: str,
+    body: AskRequest,
+    db: Session = Depends(get_db),
+    search_service=Depends(get_search_service),
+    llm_service=Depends(get_llm_service),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Pergunta em linguagem natural sobre os comentários de TODOS os vídeos do
+    usuário num canal (RAG). Custa uma chamada ao LLM, como o /ask por vídeo.
+
+    Cada fonte traz `youtube_id` e `video_title`, e a resposta nomeia o vídeo de
+    onde vem a evidência. Perguntas comparativas ("qual vídeo teve a pior
+    recepção?") são respondidas a partir dos agregados por vídeo do canal.
+    """
+    video_ids = _require_owned_channel(db, channel_id, current_user.id)
+    scope = AskScope(video_ids=video_ids, channel_id=channel_id, user_id=current_user.id)
+    return _run_ask(db, search_service, llm_service, scope, body)
+
+
+@router.get("/channels/{channel_id}/suggested-questions", response_model=SuggestedQuestionsResponse)
+def channel_suggested_questions(
+    channel_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Perguntas sugeridas para o canal, derivadas dos agregados de todos os seus
+    vídeos. Inclui perguntas comparativas entre vídeos quando há mais de um.
+    """
+    _require_owned_channel(db, channel_id, current_user.id)
+    return {
+        "channel_id": channel_id,
+        "questions": suggested_questions_use_case(db, channel_id=channel_id, user_id=current_user.id),
+    }
 
 
 @router.get("/{youtube_id}/search", response_model=List[HybridSearchResult])
@@ -122,21 +202,7 @@ def ask_insight(
     partilhada com o worker de análise de comentários.
     """
     _require_owned_video(db, youtube_id, current_user.id)
-
-    try:
-        return ask_insight_use_case(db, search_service, llm_service, youtube_id, body)
-    except LLMRateLimitError as e:
-        raise HTTPException(
-            status_code=503,
-            detail="Serviço de IA temporariamente saturado.",
-            headers={"Retry-After": str(e.retry_after_seconds)},
-        )
-    except LLMTimeoutError:
-        raise HTTPException(status_code=504, detail="A IA demorou a responder. Tente uma pergunta mais curta.")
-    except LLMConnectionError:
-        raise HTTPException(status_code=503, detail="Serviço de IA indisponível.")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return _run_ask(db, search_service, llm_service, youtube_id, body)
 
 
 @router.get("/{youtube_id}/suggested-questions", response_model=SuggestedQuestionsResponse)

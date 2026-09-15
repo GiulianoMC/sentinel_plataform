@@ -9,13 +9,13 @@ dos cards de insights.
 """
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional, Union
 
 from sqlalchemy import func
 from sqlalchemy.orm import Query, Session
 
 from app.models.VideoInsightModel import VideoInsight
-from app.models.VideoModel import Comment
+from app.models.VideoModel import Comment, Video
 
 
 class InsightsRepository:
@@ -60,38 +60,58 @@ class InsightsRepository:
             )
         return query
 
-    def sample_comments(self, youtube_id: str, limit: int, filters=None) -> List[Comment]:
-        """Até `limit` comentários analisados, balanceados por sentimento.
+    def sample_comments(
+        self, video_ids: Union[str, List[str]], limit: int, filters=None
+    ) -> List[Comment]:
+        """Até `limit` comentários analisados, balanceados por sentimento (e por vídeo).
 
         Perguntas genéricas ("faça um resumo") não têm âncora semântica; uma
         amostra estratificada por nota evita que o contexto fique enviesado para
         o sentimento mais frequente. Window function (row_number) funciona em
         PostgreSQL e em SQLite >= 3.25.
+
+        `video_ids` é um youtube_id ou a lista de youtube_ids de um canal. Com
+        vários vídeos a partição passa a (vídeo, sentimento) e a ordem final é
+        "primeiro de cada balde antes do segundo de qualquer balde": sem isso, a
+        ordenação por data devolveria só o vídeo mais recente do canal.
         """
-        per_bucket = max(limit // 5, 1)
+        ids = [video_ids] if isinstance(video_ids, str) else list(video_ids)
+        if not ids:
+            return []
+        per_bucket = max(limit // (5 * len(ids)), 1)
 
         rn = func.row_number().over(
-            partition_by=Comment.sentiment,
+            partition_by=(Comment.youtube_id, Comment.sentiment),
             order_by=Comment.published_at.desc()
         ).label("rn")
 
         ranked = self._apply_filters(
             self.db.query(Comment.id.label("id"), rn).filter(
-                Comment.youtube_id == youtube_id,
+                Comment.youtube_id.in_(ids),
                 Comment.sentiment.isnot(None),
                 Comment.intent != "Erro_IA",
             ),
             filters,
         ).subquery()
 
-        return (
+        query = (
             self.db.query(Comment)
             .join(ranked, ranked.c.id == Comment.id)
             .filter(ranked.c.rn <= per_bucket)
-            .order_by(Comment.published_at.desc())
-            .limit(limit)
-            .all()
         )
+        if len(ids) > 1:
+            query = query.order_by(ranked.c.rn, Comment.published_at.desc())
+        else:
+            query = query.order_by(Comment.published_at.desc())
+        return query.limit(limit).all()
+
+    def get_video_titles(self, youtube_ids) -> Dict[str, str]:
+        """{youtube_id: titulo} para as fontes do /ask dizerem de que vídeo vêm."""
+        ids = list({i for i in youtube_ids if i})
+        if not ids:
+            return {}
+        rows = self.db.query(Video.youtube_id, Video.titulo).filter(Video.youtube_id.in_(ids)).all()
+        return {yt: titulo for yt, titulo in rows}
 
     def count_analyzed(self, youtube_id: str) -> int:
         """Comentários efetivamente analisados (exclui os que ficaram em Erro_IA)."""

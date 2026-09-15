@@ -80,6 +80,9 @@ class SourceComment(BaseModel):
     intent: Optional[str] = None
     product_mentioned: Optional[str] = None
     distance: Optional[float] = Field(None, description="None quando a estratégia foi 'sample'")
+    # Preenchidos sempre; indispensáveis no /ask por canal, onde as fontes vêm de vários vídeos.
+    youtube_id: Optional[str] = Field(None, description="Vídeo de onde veio o comentário")
+    video_title: Optional[str] = Field(None, description="Título do vídeo de onde veio o comentário")
 
 
 class AskResponse(BaseModel):
@@ -99,7 +102,9 @@ class SuggestedQuestion(BaseModel):
 
 
 class SuggestedQuestionsResponse(BaseModel):
-    youtube_id: str
+    """Exatamente um de `youtube_id` (escopo vídeo) ou `channel_id` (escopo canal) vem preenchido."""
+    youtube_id: Optional[str] = None
+    channel_id: Optional[str] = None
     questions: List[SuggestedQuestion] = Field(default_factory=list)
 
 
