@@ -1,10 +1,10 @@
 from app.services.SemanticSearchService import SemanticSearchService
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 
 def execute_search_use_case(
     query: str, 
     search_service: SemanticSearchService, 
-    video_id_filter: Optional[str] = None,
+    video_id_filter: Optional[Union[str, List[str]]] = None,
     num_results: int = 10,
     threshold: float = 0.6
 ) -> List[Dict[str, Any]]:

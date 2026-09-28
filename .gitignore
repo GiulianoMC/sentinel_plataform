@@ -8,5 +8,6 @@ __pycache__/
 #Arquivos de dados
 postgres_data/
 chroma_data/
+*.db
 
 .env

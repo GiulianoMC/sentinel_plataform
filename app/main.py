@@ -1,19 +1,47 @@
-from fastapi import FastAPI
+import os
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+from slowapi.errors import RateLimitExceeded
 from app.services.SemanticSearchService import SemanticSearchService
 from app.dependencies import app_state
+from app.core.rate_limiter import limiter
 
 from app.database import engine
-from app.models import VideoModel 
 
-from app.routers import SemanticSearchRouter, IngestionRouter, VideoRouter 
+from app.routers import (
+    SemanticSearchRouter, IngestionRouter, VideoRouter, 
+    AnalyticsRouter, ReprocessRouter, auth_router, AdminRouter, InsightsRouter
+)
+
+def _ensure_migrations() -> None:
+    """Aplica as migrações Alembic antes de servir qualquer requisição.
+
+    Alembic é a única fonte de verdade do schema. Bancos legados criados via
+    create_all não possuem a tabela alembic_version, mas o schema gerado por
+    create_all corresponde ao head das migrações; nesse caso, marca-se o
+    baseline (stamp head) para o upgrade não tentar recriar tabelas existentes.
+    """
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import inspect
+
+    cfg = Config("alembic.ini")
+    cfg.set_main_option("script_location", "alembic")
+
+    inspector = inspect(engine)
+    if not inspector.has_table("alembic_version") and inspector.get_table_names():
+        command.stamp(cfg, "head")
+        print("--- [API] Banco legado (create_all) marcado como baseline alembic. ---")
+
+    command.upgrade(cfg, "head")
+    print("--- [API] Migrações aplicadas (alembic upgrade head). ---")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    
-    print("--- [API] A criar tabelas do banco de dados (se não existirem)... ---")
-    VideoModel.Base.metadata.create_all(bind=engine)
-    print("--- [API] Tabelas criadas com sucesso. ---")
+
+    _ensure_migrations()
 
     service = SemanticSearchService()
     
@@ -21,6 +49,15 @@ async def lifespan(app: FastAPI):
     service.setup_collection("comentarios_produtos", documents=[]) 
     
     app_state['search_service'] = service
+
+    # LLM partilhado pelo processo da API (RAG do módulo de Insights).
+    # Falhar aqui não deve impedir a API de subir: só o /insights/ask depende dele.
+    try:
+        from app.services.LLMService import LLMService
+        app_state['llm_service'] = LLMService()
+    except Exception as e:
+        print(f"--- [API] LLMService indisponível ({e}); /insights/ask responderá 503. ---")
+
     yield 
     
     app_state.clear()
@@ -30,6 +67,48 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+app.state.limiter = limiter
+
+
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """429 com Retry-After, para o front poder mostrar quanto falta para liberar."""
+    try:
+        retry_after = int(exc.limit.limit.get_expiry())
+    except Exception:
+        retry_after = 60
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Tente novamente mais tarde."},
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
+# CORS para permitir que o front-end (browser) consuma a API.
+# Defina CORS_ORIGINS no .env (lista separada por vírgula) em produção; "*" no desenvolvimento.
+_cors_origins = os.environ.get("CORS_ORIGINS", "*")
+allow_all = _cors_origins.strip() == "*"
+allow_origins = ["*"] if allow_all else [o.strip() for o in _cors_origins.split(",")]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allow_origins,
+    # Wildcard + credenciais é bloqueado pelos browsers; só habilita credenciais com origens explícitas.
+    allow_credentials=not allow_all,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    # Sem expose_headers o JS do browser não enxerga headers de resposta fora da
+    # lista segura do CORS. O front lê Retry-After para o countdown de rate limit
+    # (429 do slowapi e 503 do LLM saturado).
+    expose_headers=["Retry-After"],
+)
+
+app.include_router(auth_router)
 app.include_router(SemanticSearchRouter.router)
 app.include_router(IngestionRouter.router)
-app.include_router(VideoRouter.router) 
+app.include_router(VideoRouter.router)
+app.include_router(AnalyticsRouter.router)
+app.include_router(ReprocessRouter.router)
+app.include_router(AdminRouter.router)
+app.include_router(InsightsRouter.router)

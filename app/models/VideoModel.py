@@ -1,19 +1,38 @@
-from sqlalchemy import Column, String, DateTime
+# app/models/VideoModel.py
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from app.database import Base
-import uuid
-
-def generate_uuid():
-    return str(uuid.uuid4())
 
 class Video(Base):
     __tablename__ = "videos"
+    id = Column(Integer, primary_key=True, index=True)
+    youtube_id = Column(String, unique=True, index=True, nullable=False)
+    titulo = Column(String, nullable=False)
+    # Preenchidos a partir do snippet da YouTube API no registo (ou pelo backfill
+    # POST /reprocess/video-channels para vídeos antigos). Base do filtro por canal.
+    channel_id = Column(String, nullable=True, index=True)
+    channel_title = Column(String, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    ultimo_comentario_verificado_em = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    id = Column(String, primary_key=True, default=generate_uuid)
-    youtube_id = Column(String, unique=True, nullable=False, index=True)
-    titulo = Column(String, nullable=True)
-    
-    criado_em = Column(DateTime(timezone=True), server_default=func.now())
-    atualizado_em = Column(DateTime(timezone=True), onupdate=func.now())
-    
-    ultimo_comentario_verificado_em = Column(DateTime(timezone=True), nullable=True)
+    comments = relationship("Comment", back_populates="video")
+    owner = relationship("User", back_populates="videos")
+
+class Comment(Base):
+    __tablename__ = "comments"
+    id = Column(String, primary_key=True, index=True)
+    youtube_id = Column(String, ForeignKey("videos.youtube_id"), nullable=False)
+    author = Column(String, nullable=False)
+    text = Column(Text, nullable=False)
+    published_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+    sentiment = Column(Integer, nullable=True)
+    intent = Column(String, nullable=True) 
+    product_mentioned = Column(String, nullable=True)
+    # ------------------------------------
+
+    video = relationship("Video", back_populates="comments")
